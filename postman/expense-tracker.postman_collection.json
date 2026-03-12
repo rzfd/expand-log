@@ -1,0 +1,633 @@
+{
+  "info": {
+    "_postman_id": "d63a5c57-fd70-4dd2-8eb0-0f20ca6d88b7",
+    "name": "Expense Tracker API",
+    "description": "Ready-to-import Postman collection for the local Expense Tracker API. Recommended order: Register, Login, Create Category, then run the remaining create/list requests. Login stores the JWT in `accessToken`, and the create requests store returned IDs in collection variables.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "System",
+      "item": [
+        {
+          "name": "Root",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/"
+          }
+        },
+        {
+          "name": "Healthz",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/healthz"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('email', 'user+' + Date.now() + '@example.com');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\":\"{{email}}\",\"password\":\"{{password}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/v1/auth/register",
+            "description": "Creates a new user. This request generates a unique `email` collection variable before sending."
+          }
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json && json.data && json.data.access_token) {",
+                  "    pm.collectionVariables.set('accessToken', json.data.access_token);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\":\"{{email}}\",\"password\":\"{{password}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/v1/auth/login",
+            "description": "Authenticates the current `email` and stores `data.access_token` in the `accessToken` collection variable."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Categories",
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{accessToken}}",
+            "type": "string"
+          }
+        ]
+      },
+      "item": [
+        {
+          "name": "List Categories",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/categories"
+          }
+        },
+        {
+          "name": "Create Category",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json && json.data && json.data.id) {",
+                  "    pm.collectionVariables.set('categoryId', String(json.data.id));",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\":\"{{categoryName}}\",\"type\":\"expense\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/v1/categories",
+            "description": "Creates an expense category and stores the returned `id` in `categoryId`."
+          }
+        },
+        {
+          "name": "Update Category",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\":\"{{updatedCategoryName}}\",\"type\":\"expense\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/v1/categories/{{categoryId}}"
+          }
+        },
+        {
+          "name": "Delete Category",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/v1/categories/{{categoryId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Transactions",
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{accessToken}}",
+            "type": "string"
+          }
+        ]
+      },
+      "item": [
+        {
+          "name": "List Transactions",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/transactions?start_date={{filterStartDate}}&end_date={{filterEndDate}}&type=expense&category_id={{categoryId}}&min_amount={{minAmount}}&max_amount={{maxAmount}}&page={{page}}&page_size={{pageSize}}"
+          }
+        },
+        {
+          "name": "Get Transaction By ID",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/transactions/{{transactionId}}"
+          }
+        },
+        {
+          "name": "Create Transaction",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json && json.data && json.data.id) {",
+                  "    pm.collectionVariables.set('transactionId', String(json.data.id));",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"category_id\":{{categoryId}},\"type\":\"expense\",\"amount\":\"{{transactionAmount}}\",\"note\":\"{{transactionNote}}\",\"transaction_date\":\"{{transactionDate}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/v1/transactions",
+            "description": "Creates a transaction and stores the returned `id` in `transactionId`."
+          }
+        },
+        {
+          "name": "Update Transaction",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"category_id\":{{categoryId}},\"type\":\"expense\",\"amount\":\"{{updatedTransactionAmount}}\",\"note\":\"{{updatedTransactionNote}}\",\"transaction_date\":\"{{transactionDate}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/v1/transactions/{{transactionId}}"
+          }
+        },
+        {
+          "name": "Delete Transaction",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/v1/transactions/{{transactionId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reports",
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{accessToken}}",
+            "type": "string"
+          }
+        ]
+      },
+      "item": [
+        {
+          "name": "Monthly Report",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/reports/monthly?year={{year}}&month={{month}}"
+          }
+        },
+        {
+          "name": "Dashboard Summary",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/dashboard/summary?year={{year}}&month={{month}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Budgets",
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{accessToken}}",
+            "type": "string"
+          }
+        ]
+      },
+      "item": [
+        {
+          "name": "List Budgets",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/budgets?year={{year}}&month={{month}}"
+          }
+        },
+        {
+          "name": "Create Budget",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json && json.data && json.data.id) {",
+                  "    pm.collectionVariables.set('budgetId', String(json.data.id));",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"category_id\":{{categoryId}},\"year\":{{year}},\"month\":{{month}},\"amount\":\"{{budgetAmount}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/v1/budgets",
+            "description": "Creates a budget and stores the returned `id` in `budgetId`."
+          }
+        },
+        {
+          "name": "Update Budget",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"category_id\":{{categoryId}},\"year\":{{year}},\"month\":{{month}},\"amount\":\"{{updatedBudgetAmount}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/v1/budgets/{{budgetId}}"
+          }
+        },
+        {
+          "name": "Delete Budget",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/v1/budgets/{{budgetId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Recurring Transactions",
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{accessToken}}",
+            "type": "string"
+          }
+        ]
+      },
+      "item": [
+        {
+          "name": "List Recurring Transactions",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/recurring-transactions"
+          }
+        },
+        {
+          "name": "Create Recurring Transaction",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json && json.data && json.data.id) {",
+                  "    pm.collectionVariables.set('recurringTransactionId', String(json.data.id));",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"category_id\":{{categoryId}},\"type\":\"expense\",\"amount\":\"{{recurringAmount}}\",\"note\":\"{{recurringNote}}\",\"frequency\":\"{{recurringFrequency}}\",\"start_date\":\"{{recurringStartDate}}\",\"end_date\":\"{{recurringEndDate}}\",\"active\":true}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/v1/recurring-transactions",
+            "description": "Creates a recurring transaction and stores the returned `id` in `recurringTransactionId`."
+          }
+        },
+        {
+          "name": "Update Recurring Transaction",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"category_id\":{{categoryId}},\"type\":\"expense\",\"amount\":\"{{updatedRecurringAmount}}\",\"note\":\"{{updatedRecurringNote}}\",\"frequency\":\"{{recurringFrequency}}\",\"start_date\":\"{{recurringStartDate}}\",\"end_date\":\"{{recurringEndDate}}\",\"active\":true}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/v1/recurring-transactions/{{recurringTransactionId}}"
+          }
+        },
+        {
+          "name": "Delete Recurring Transaction",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/v1/recurring-transactions/{{recurringTransactionId}}"
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "email",
+      "value": "user@example.com"
+    },
+    {
+      "key": "password",
+      "value": "password123"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "categoryId",
+      "value": "1"
+    },
+    {
+      "key": "transactionId",
+      "value": "1"
+    },
+    {
+      "key": "budgetId",
+      "value": "1"
+    },
+    {
+      "key": "recurringTransactionId",
+      "value": "1"
+    },
+    {
+      "key": "year",
+      "value": "2026"
+    },
+    {
+      "key": "month",
+      "value": "3"
+    },
+    {
+      "key": "page",
+      "value": "1"
+    },
+    {
+      "key": "pageSize",
+      "value": "20"
+    },
+    {
+      "key": "filterStartDate",
+      "value": ""
+    },
+    {
+      "key": "filterEndDate",
+      "value": ""
+    },
+    {
+      "key": "minAmount",
+      "value": ""
+    },
+    {
+      "key": "maxAmount",
+      "value": ""
+    },
+    {
+      "key": "categoryName",
+      "value": "Food"
+    },
+    {
+      "key": "updatedCategoryName",
+      "value": "Food & Dining"
+    },
+    {
+      "key": "transactionAmount",
+      "value": "49.90"
+    },
+    {
+      "key": "updatedTransactionAmount",
+      "value": "59.90"
+    },
+    {
+      "key": "transactionNote",
+      "value": "Lunch"
+    },
+    {
+      "key": "updatedTransactionNote",
+      "value": "Dinner"
+    },
+    {
+      "key": "transactionDate",
+      "value": "2026-03-12"
+    },
+    {
+      "key": "budgetAmount",
+      "value": "500.00"
+    },
+    {
+      "key": "updatedBudgetAmount",
+      "value": "650.00"
+    },
+    {
+      "key": "recurringAmount",
+      "value": "19.99"
+    },
+    {
+      "key": "updatedRecurringAmount",
+      "value": "24.99"
+    },
+    {
+      "key": "recurringNote",
+      "value": "Subscription"
+    },
+    {
+      "key": "updatedRecurringNote",
+      "value": "Updated subscription"
+    },
+    {
+      "key": "recurringFrequency",
+      "value": "monthly"
+    },
+    {
+      "key": "recurringStartDate",
+      "value": "2026-03-01"
+    },
+    {
+      "key": "recurringEndDate",
+      "value": ""
+    }
+  ]
+}
