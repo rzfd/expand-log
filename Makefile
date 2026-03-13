@@ -15,7 +15,7 @@ migrate-up:
 	$(COMPOSE) run --rm migrate
 
 migrate-down:
-	$(COMPOSE) run --rm migrate -path /migrations -database "postgres://$${DB_USER}:$${DB_PASSWORD}@postgres:5432/$${DB_NAME}?sslmode=$${DB_SSLMODE}" down 1
+	$(COMPOSE) run --rm migrate -path /migrations -database "postgres://$${DB_USER}:$${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/$${DB_NAME}?sslmode=$${DB_SSLMODE}" down 1
 
 logs:
 	$(COMPOSE) logs -f
