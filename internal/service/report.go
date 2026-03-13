@@ -85,7 +85,16 @@ func (s *ReportService) DashboardSummary(ctx context.Context, userID int64, year
 }
 
 func resolveMonth(year, month int) (time.Time, time.Time, error) {
-	logging.FromContext(nil).Info().Int("year", year).Int("month", month).Msg("service report resolve month started")
+	logging.FromContext(context.TODO()).Info().Int("year", year).Int("month", month).Msg("service report resolve month started")
+	if year != 0 && (year < 2000 || year > 9999) {
+		logging.FromContext(context.TODO()).Warn().Int("year", year).Msg("service report resolve month invalid year")
+		return time.Time{}, time.Time{}, apperror.New(http.StatusBadRequest, "validation_error", "year must be between 2000 and 9999")
+	}
+	if month != 0 && (month < 1 || month > 12) {
+		logging.FromContext(context.TODO()).Warn().Int("month", month).Msg("service report resolve month invalid month")
+		return time.Time{}, time.Time{}, apperror.New(http.StatusBadRequest, "validation_error", "month must be between 1 and 12")
+	}
+
 	now := time.Now().UTC()
 	if year == 0 {
 		year = now.Year()
@@ -96,10 +105,10 @@ func resolveMonth(year, month int) (time.Time, time.Time, error) {
 
 	start, end, err := schedule.MonthBounds(year, month)
 	if err != nil {
-		logging.FromContext(nil).Warn().Err(err).Int("year", year).Int("month", month).Msg("service report resolve month failed")
+		logging.FromContext(context.TODO()).Warn().Err(err).Int("year", year).Int("month", month).Msg("service report resolve month failed")
 		return time.Time{}, time.Time{}, apperror.New(http.StatusBadRequest, "validation_error", err.Error())
 	}
 
-	logging.FromContext(nil).Info().Int("year", year).Int("month", month).Msg("service report resolve month completed")
+	logging.FromContext(context.TODO()).Info().Int("year", year).Int("month", month).Msg("service report resolve month completed")
 	return start, end, nil
 }

@@ -2,10 +2,13 @@ package service
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"testing"
 	"time"
 
 	"github.com/rzfd/expand/internal/model"
+	"github.com/rzfd/expand/internal/pkg/apperror"
 )
 
 type fakeTransactionRepo struct {
@@ -73,5 +76,86 @@ func TestTransactionServiceCreate(t *testing.T) {
 
 	if item == nil || item.ID == 0 {
 		t.Fatalf("expected created transaction")
+	}
+}
+
+func TestTransactionServiceCreateValidation(t *testing.T) {
+	transactionRepo := &fakeTransactionRepo{}
+	categoryRepo := &fakeCategoryLookupRepo{
+		category: &model.Category{
+			ID:   10,
+			Name: "Food",
+			Type: model.TransactionTypeExpense,
+		},
+	}
+	service := NewTransactionService(transactionRepo, categoryRepo)
+
+	tests := []struct {
+		name    string
+		input   TransactionInput
+		message string
+	}{
+		{
+			name: "invalid category id",
+			input: TransactionInput{
+				CategoryID:      0,
+				Type:            model.TransactionTypeExpense,
+				AmountCents:     1000,
+				TransactionDate: time.Now().UTC(),
+			},
+			message: "category_id must be greater than zero",
+		},
+		{
+			name: "invalid amount",
+			input: TransactionInput{
+				CategoryID:      10,
+				Type:            model.TransactionTypeExpense,
+				AmountCents:     0,
+				TransactionDate: time.Now().UTC(),
+			},
+			message: "amount must be greater than zero",
+		},
+		{
+			name: "missing transaction date",
+			input: TransactionInput{
+				CategoryID:  10,
+				Type:        model.TransactionTypeExpense,
+				AmountCents: 1000,
+			},
+			message: "transaction_date is required",
+		},
+		{
+			name: "category type mismatch",
+			input: TransactionInput{
+				CategoryID:      10,
+				Type:            model.TransactionTypeIncome,
+				AmountCents:     1000,
+				TransactionDate: time.Now().UTC(),
+			},
+			message: "transaction type must match category type",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := service.Create(context.Background(), 1, tt.input)
+			if err == nil {
+				t.Fatalf("expected validation error")
+			}
+
+			var appErr *apperror.Error
+			if !errors.As(err, &appErr) {
+				t.Fatalf("expected app error, got %T", err)
+			}
+			if appErr.Status != http.StatusBadRequest {
+				t.Fatalf("expected status 400, got %d", appErr.Status)
+			}
+			if appErr.Code != "validation_error" {
+				t.Fatalf("expected code validation_error, got %s", appErr.Code)
+			}
+			if appErr.Message != tt.message {
+				t.Fatalf("expected message %q, got %q", tt.message, appErr.Message)
+			}
+		})
 	}
 }

@@ -5,6 +5,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	echomiddleware "github.com/labstack/echo/v4/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	authmiddleware "github.com/rzfd/expand/internal/middleware"
 	"github.com/rzfd/expand/internal/pkg/apperror"
@@ -45,6 +46,7 @@ func NewEcho() *echo.Echo {
 }
 
 func RegisterRoutes(e *echo.Echo, deps RouterDependencies) {
+	e.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
 	e.GET("/healthz", func(c echo.Context) error {
 		return response.OK(c, map[string]string{"status": "ok"})
 	})

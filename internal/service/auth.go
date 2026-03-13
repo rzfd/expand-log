@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"net/http"
+	"net/mail"
+	"regexp"
 	"strings"
 	"time"
 
@@ -40,7 +42,11 @@ func (s *AuthService) Register(ctx context.Context, email, password string) (*mo
 	logger := logging.FromContext(ctx)
 	logger.Info().Msg("service auth register started")
 	email = normalizeEmail(email)
-	if err := validateEmailAndPassword(email, password); err != nil {
+	if err := validateEmailForAuth(email); err != nil {
+		logger.Warn().Err(err).Msg("service auth register email validation failed")
+		return nil, err
+	}
+	if err := validatePasswordPolicy(password); err != nil {
 		logger.Warn().Err(err).Msg("service auth register validation failed")
 		return nil, err
 	}
@@ -82,9 +88,18 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (*AuthR
 	logger := logging.FromContext(ctx)
 	logger.Info().Msg("service auth login started")
 	email = normalizeEmail(email)
-	if err := validateEmailAndPassword(email, password); err != nil {
-		logger.Warn().Err(err).Msg("service auth login validation failed")
+	if err := validateEmailForAuth(email); err != nil {
+		logger.Warn().Err(err).Msg("service auth login email validation failed")
 		return nil, err
+	}
+	if strings.TrimSpace(password) == "" {
+		logger.Warn().Msg("service auth login empty password")
+		return nil, apperror.New(http.StatusBadRequest, "validation_error", "password is required")
+	}
+
+	if len(password) < 8 {
+		logger.Warn().Msg("service auth login short password")
+		return nil, apperror.New(http.StatusBadRequest, "validation_error", "password must be at least 8 characters")
 	}
 
 	user, err := s.users.GetByEmail(ctx, email)
@@ -116,23 +131,48 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (*AuthR
 	}, nil
 }
 
-func validateEmailAndPassword(email, password string) error {
-	logger := logging.FromContext(nil)
-	logger.Info().Msg("service auth validate credentials started")
-	if email == "" || !strings.Contains(email, "@") {
-		logger.Warn().Msg("service auth validate credentials invalid email")
-		return apperror.New(http.StatusBadRequest, "validation_error", "email must be valid")
+func validateEmailForAuth(email string) error {
+	logger := logging.FromContext(context.TODO())
+	logger.Info().Msg("service auth validate email started")
+	if email == "" {
+		logger.Warn().Msg("service auth validate email empty")
+		return apperror.New(http.StatusBadRequest, "validation_error", "email is required")
 	}
-	if len(password) < 8 {
-		logger.Warn().Msg("service auth validate credentials short password")
-		return apperror.New(http.StatusBadRequest, "validation_error", "password must be at least 8 characters")
+	if strings.Count(email, "@") != 1 {
+		logger.Warn().Str("email", email).Msg("service auth validate email invalid @ count")
+		return apperror.New(http.StatusBadRequest, "validation_error", "email must be a valid address")
 	}
-	logger.Info().Msg("service auth validate credentials completed")
+	parsed, err := mail.ParseAddress(email)
+	if err != nil || parsed == nil || parsed.Address != email {
+		logger.Warn().Err(err).Str("email", email).Msg("service auth validate email parse failed")
+		return apperror.New(http.StatusBadRequest, "validation_error", "email must be a valid address")
+	}
+	logger.Info().Msg("service auth validate email completed")
 	return nil
 }
 
 func normalizeEmail(email string) string {
 	normalized := strings.ToLower(strings.TrimSpace(email))
-	logging.FromContext(nil).Info().Msg("service auth normalize email completed")
+	logging.FromContext(context.TODO()).Info().Msg("service auth normalize email completed")
 	return normalized
+}
+
+var (
+	passwordHasLetter = regexp.MustCompile(`[A-Za-z]`)
+	passwordHasNumber = regexp.MustCompile(`[0-9]`)
+)
+
+func validatePasswordPolicy(password string) error {
+	logger := logging.FromContext(context.TODO())
+	logger.Info().Msg("service auth validate password policy started")
+	if len(password) < 8 {
+		logger.Warn().Msg("service auth validate password policy too short")
+		return apperror.New(http.StatusBadRequest, "validation_error", "password must be at least 8 characters")
+	}
+	if !passwordHasLetter.MatchString(password) || !passwordHasNumber.MatchString(password) {
+		logger.Warn().Msg("service auth validate password policy missing character class")
+		return apperror.New(http.StatusBadRequest, "validation_error", "password must include letters and numbers")
+	}
+	logger.Info().Msg("service auth validate password policy completed")
+	return nil
 }

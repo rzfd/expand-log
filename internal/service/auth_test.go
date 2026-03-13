@@ -2,10 +2,13 @@ package service
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"testing"
 	"time"
 
 	"github.com/rzfd/expand/internal/model"
+	"github.com/rzfd/expand/internal/pkg/apperror"
 	"github.com/rzfd/expand/internal/pkg/auth"
 )
 
@@ -66,5 +69,60 @@ func TestAuthServiceLoginInvalidPassword(t *testing.T) {
 
 	if _, err := service.Login(context.Background(), "test@example.com", "wrong-password"); err == nil {
 		t.Fatalf("expected login error for invalid password")
+	}
+}
+
+func TestAuthServiceRegisterValidation(t *testing.T) {
+	repo := &fakeAuthUserRepo{}
+	tokenManager := auth.NewTokenManager("test-secret", time.Hour)
+	service := NewAuthService(repo, tokenManager)
+
+	tests := []struct {
+		name    string
+		email   string
+		pass    string
+		message string
+	}{
+		{
+			name:    "invalid email format",
+			email:   "invalid-email",
+			pass:    "password123",
+			message: "email must be a valid address",
+		},
+		{
+			name:    "password missing number",
+			email:   "test@example.com",
+			pass:    "password",
+			message: "password must include letters and numbers",
+		},
+		{
+			name:    "password too short",
+			email:   "test@example.com",
+			pass:    "abc123",
+			message: "password must be at least 8 characters",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := service.Register(context.Background(), tt.email, tt.pass)
+			if err == nil {
+				t.Fatalf("expected validation error")
+			}
+
+			var appErr *apperror.Error
+			if !errors.As(err, &appErr) {
+				t.Fatalf("expected app error, got %T", err)
+			}
+			if appErr.Status != http.StatusBadRequest {
+				t.Fatalf("expected status 400, got %d", appErr.Status)
+			}
+			if appErr.Code != "validation_error" {
+				t.Fatalf("expected code validation_error, got %s", appErr.Code)
+			}
+			if appErr.Message != tt.message {
+				t.Fatalf("expected message %q, got %q", tt.message, appErr.Message)
+			}
+		})
 	}
 }

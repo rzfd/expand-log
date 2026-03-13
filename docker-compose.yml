@@ -3,9 +3,6 @@ services:
     image: migrate/migrate:v4.17.1
     env_file:
       - .env
-    # depends_on:
-    #   postgres:
-    #     condition: service_healthy
     volumes:
       - ./migrations:/migrations:ro
     command:
@@ -24,6 +21,8 @@ services:
       dockerfile: Dockerfile.api
     env_file:
       - .env
+    networks:
+      - dnsnet
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -43,13 +42,16 @@ services:
       migrate:
         condition: service_completed_successfully
     restart: unless-stopped
+    networks:
+      dnsnet:
+        ipv4_address: 172.28.0.24
       
 networks:
   dnsnet:
-    driver: bridge
+    name: dnsgw_dnsnet
     ipam:
       config:
-        - subnet: 172.29.0.0/24
+        - subnet: 172.28.0.0/16
 
 volumes:
   postgres_data:

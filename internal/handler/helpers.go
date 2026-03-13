@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -32,7 +33,7 @@ func parseIDParam(c echo.Context, name string) (int64, error) {
 }
 
 func parseOptionalDate(value, field string) (*time.Time, error) {
-	logger := logging.FromContext(nil)
+	logger := logging.FromContext(context.TODO())
 	value = strings.TrimSpace(value)
 	if value == "" {
 		logger.Info().Str("field", field).Msg("parse optional date empty")
@@ -56,14 +57,14 @@ func parseRequiredDate(value, field string) (time.Time, error) {
 		return time.Time{}, err
 	}
 	if parsed == nil {
-		logging.FromContext(nil).Warn().Str("field", field).Msg("parse required date missing")
+		logging.FromContext(context.TODO()).Warn().Str("field", field).Msg("parse required date missing")
 		return time.Time{}, apperror.New(http.StatusBadRequest, "validation_error", fmt.Sprintf("%s is required", field))
 	}
 	return *parsed, nil
 }
 
 func parseAmount(value, field string) (int64, error) {
-	logger := logging.FromContext(nil)
+	logger := logging.FromContext(context.TODO())
 	parsed, err := money.ParseDecimal(value)
 	if err != nil {
 		logger.Warn().Err(err).Str("field", field).Str("value", value).Msg("parse amount failed")
@@ -86,7 +87,7 @@ func parseOptionalAmount(value, field string) (*int64, error) {
 }
 
 func parseTransactionType(value string) (*model.TransactionType, error) {
-	logger := logging.FromContext(nil)
+	logger := logging.FromContext(context.TODO())
 	value = strings.TrimSpace(value)
 	if value == "" {
 		logger.Info().Msg("parse transaction type empty")
@@ -103,22 +104,32 @@ func parseTransactionType(value string) (*model.TransactionType, error) {
 
 func parseYearMonth(c echo.Context) (int, int, error) {
 	logger := logging.FromContext(c.Request().Context())
-	year, err := parseOptionalInt(c.QueryParam("year"))
+	yearRaw := strings.TrimSpace(c.QueryParam("year"))
+	monthRaw := strings.TrimSpace(c.QueryParam("month"))
+	year, err := parseOptionalInt(yearRaw)
 	if err != nil {
-		logger.Warn().Err(err).Str("year", c.QueryParam("year")).Msg("parse year failed")
+		logger.Warn().Err(err).Str("year", yearRaw).Msg("parse year failed")
 		return 0, 0, apperror.New(http.StatusBadRequest, "validation_error", "year must be a valid integer")
 	}
-	month, err := parseOptionalInt(c.QueryParam("month"))
+	month, err := parseOptionalInt(monthRaw)
 	if err != nil {
-		logger.Warn().Err(err).Str("month", c.QueryParam("month")).Msg("parse month failed")
+		logger.Warn().Err(err).Str("month", monthRaw).Msg("parse month failed")
 		return 0, 0, apperror.New(http.StatusBadRequest, "validation_error", "month must be a valid integer")
+	}
+	if yearRaw != "" && (year < 2000 || year > 9999) {
+		logger.Warn().Int("year", year).Msg("parse year out of range")
+		return 0, 0, apperror.New(http.StatusBadRequest, "validation_error", "year must be between 2000 and 9999")
+	}
+	if monthRaw != "" && (month < 1 || month > 12) {
+		logger.Warn().Int("month", month).Msg("parse month out of range")
+		return 0, 0, apperror.New(http.StatusBadRequest, "validation_error", "month must be between 1 and 12")
 	}
 	logger.Info().Int("year", year).Int("month", month).Msg("parse year month completed")
 	return year, month, nil
 }
 
 func parseOptionalInt64(value string, field string) (*int64, error) {
-	logger := logging.FromContext(nil)
+	logger := logging.FromContext(context.TODO())
 	value = strings.TrimSpace(value)
 	if value == "" {
 		logger.Info().Str("field", field).Msg("parse optional int64 empty")
@@ -134,7 +145,7 @@ func parseOptionalInt64(value string, field string) (*int64, error) {
 }
 
 func parseOptionalInt(value string) (int, error) {
-	logger := logging.FromContext(nil)
+	logger := logging.FromContext(context.TODO())
 	value = strings.TrimSpace(value)
 	if value == "" {
 		logger.Info().Msg("parse optional int empty")

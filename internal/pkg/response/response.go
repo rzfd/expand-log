@@ -43,7 +43,6 @@ func Created(c echo.Context, data any) error {
 }
 
 func Error(c echo.Context, err error) error {
-	logging.FromContext(c.Request().Context()).Warn().Err(err).Msg("response error")
 	var appErr *apperror.Error
 	if errors.As(err, &appErr) {
 		logError(c, appErr.Status, appErr.Code, appErr.Message, appErr.Details, err)
@@ -73,8 +72,8 @@ func logError(c echo.Context, status int, code, message string, details any, err
 	}
 
 	logger := logging.FromContext(c.Request().Context())
-	event := logger.Warn()
-	if status >= 500 {
+	event := logger.Warn().Err(err)
+	if status >= 500 || code == "validation_error" {
 		event = logger.Error().Err(err)
 	}
 
