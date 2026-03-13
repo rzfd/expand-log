@@ -43,21 +43,6 @@ services:
       migrate:
         condition: service_completed_successfully
     restart: unless-stopped
-
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: expense-tracker-pgadmin
-    env_file:
-      - .env
-    environment:
-      - PGADMIN_DEFAULT_EMAIL=${PGADMIN_DEFAULT_EMAIL}
-      - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_DEFAULT_PASSWORD}
-    ports:
-      - "${PGADMIN_HOST_PORT:-5050}:80"
-    # depends_on:
-    #   postgres:
-    #     condition: service_healthy
-    restart: unless-stopped
       
 networks:
   dnsnet:
