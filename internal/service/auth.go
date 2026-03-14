@@ -41,12 +41,12 @@ func NewAuthService(users authUserRepository, tokenManager *auth.TokenManager) *
 func (s *AuthService) Register(ctx context.Context, email, password string) (*model.User, error) {
 	logger := logging.FromContext(ctx)
 	logger.Info().Msg("service auth register started")
-	email = normalizeEmail(email)
-	if err := validateEmailForAuth(email); err != nil {
+	email = normalizeEmail(ctx, email)
+	if err := validateEmailForAuth(ctx, email); err != nil {
 		logger.Warn().Err(err).Msg("service auth register email validation failed")
 		return nil, err
 	}
-	if err := validatePasswordPolicy(password); err != nil {
+	if err := validatePasswordPolicy(ctx, password); err != nil {
 		logger.Warn().Err(err).Msg("service auth register validation failed")
 		return nil, err
 	}
@@ -87,8 +87,8 @@ func (s *AuthService) Register(ctx context.Context, email, password string) (*mo
 func (s *AuthService) Login(ctx context.Context, email, password string) (*AuthResult, error) {
 	logger := logging.FromContext(ctx)
 	logger.Info().Msg("service auth login started")
-	email = normalizeEmail(email)
-	if err := validateEmailForAuth(email); err != nil {
+	email = normalizeEmail(ctx, email)
+	if err := validateEmailForAuth(ctx, email); err != nil {
 		logger.Warn().Err(err).Msg("service auth login email validation failed")
 		return nil, err
 	}
@@ -131,8 +131,8 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (*AuthR
 	}, nil
 }
 
-func validateEmailForAuth(email string) error {
-	logger := logging.FromContext(context.TODO())
+func validateEmailForAuth(ctx context.Context, email string) error {
+	logger := logging.FromContext(ctx)
 	logger.Info().Msg("service auth validate email started")
 	if email == "" {
 		logger.Warn().Msg("service auth validate email empty")
@@ -151,9 +151,9 @@ func validateEmailForAuth(email string) error {
 	return nil
 }
 
-func normalizeEmail(email string) string {
+func normalizeEmail(ctx context.Context, email string) string {
 	normalized := strings.ToLower(strings.TrimSpace(email))
-	logging.FromContext(context.TODO()).Info().Msg("service auth normalize email completed")
+	logging.FromContext(ctx).Info().Msg("service auth normalize email completed")
 	return normalized
 }
 
@@ -162,8 +162,8 @@ var (
 	passwordHasNumber = regexp.MustCompile(`[0-9]`)
 )
 
-func validatePasswordPolicy(password string) error {
-	logger := logging.FromContext(context.TODO())
+func validatePasswordPolicy(ctx context.Context, password string) error {
+	logger := logging.FromContext(ctx)
 	logger.Info().Msg("service auth validate password policy started")
 	if len(password) < 8 {
 		logger.Warn().Msg("service auth validate password policy too short")

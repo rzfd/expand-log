@@ -75,7 +75,7 @@ func (p *Processor) ProcessDue(ctx context.Context) (int, error) {
 			return created, fmt.Errorf("insert generated transaction: %w", err)
 		}
 
-		nextRunDate, active, err := nextSchedule(item.Frequency, runDate, item.EndDate)
+		nextRunDate, active, err := nextSchedule(ctx, item.Frequency, runDate, item.EndDate)
 		if err != nil {
 			_ = tx.Rollback(ctx)
 			logger.Error().Err(err).Int64("recurring_id", item.ID).Msg("worker process due next schedule failed")
@@ -110,20 +110,20 @@ func (p *Processor) ProcessDue(ctx context.Context) (int, error) {
 	return created, nil
 }
 
-func nextSchedule(frequency model.RecurringFrequency, runDate time.Time, endDate *time.Time) (*time.Time, bool, error) {
-	logging.FromContext(nil).Info().Str("frequency", string(frequency)).Str("run_date", runDate.Format("2006-01-02")).Msg("worker next schedule started")
+func nextSchedule(ctx context.Context, frequency model.RecurringFrequency, runDate time.Time, endDate *time.Time) (*time.Time, bool, error) {
+	logging.FromContext(ctx).Info().Str("frequency", string(frequency)).Str("run_date", runDate.Format("2006-01-02")).Msg("worker next schedule started")
 	nextRun, err := schedule.NextRunDate(frequency, runDate)
 	if err != nil {
-		logging.FromContext(nil).Warn().Err(err).Msg("worker next schedule failed")
+		logging.FromContext(ctx).Warn().Err(err).Msg("worker next schedule failed")
 		return nil, false, err
 	}
 
 	if endDate != nil && nextRun.After(schedule.NormalizeDate(*endDate)) {
-		logging.FromContext(nil).Info().Msg("worker next schedule completed inactive")
+		logging.FromContext(ctx).Info().Msg("worker next schedule completed inactive")
 		return nil, false, nil
 	}
 
-	logging.FromContext(nil).Info().Msg("worker next schedule completed")
+	logging.FromContext(ctx).Info().Msg("worker next schedule completed")
 	return &nextRun, true, nil
 }
 
@@ -158,15 +158,19 @@ func (r *Runner) Start(ctx context.Context) {
 }
 
 func (r *Runner) runOnce(ctx context.Context) {
-	logging.FromContext(ctx).Info().Msg("worker runner cycle started")
-	created, err := r.processor.ProcessDue(ctx)
+	cycleStart := r.processor.now()
+	runID := fmt.Sprintf("%d", cycleStart.UnixNano())
+	cycleCtx := logging.WithField(ctx, "run_id", runID)
+	logging.FromContext(cycleCtx).Info().Msg("worker runner cycle started")
+	created, err := r.processor.ProcessDue(cycleCtx)
+	elapsedMS := time.Since(cycleStart).Milliseconds()
 	if err != nil {
-		logging.FromContext(ctx).Error().Err(err).Msg("worker run failed")
+		logging.FromContext(cycleCtx).Error().Err(err).Int64("elapsed_ms", elapsedMS).Msg("worker run failed")
 		return
 	}
 
 	if created > 0 {
-		logging.FromContext(ctx).Info().Int("created", created).Msg("worker generated recurring transactions")
+		logging.FromContext(cycleCtx).Info().Int("created", created).Msg("worker generated recurring transactions")
 	}
-	logging.FromContext(ctx).Info().Int("created", created).Msg("worker runner cycle completed")
+	logging.FromContext(cycleCtx).Info().Int("created", created).Int64("elapsed_ms", elapsedMS).Msg("worker runner cycle completed")
 }

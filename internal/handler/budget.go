@@ -137,7 +137,7 @@ func (h *BudgetHandler) parseRequest(c echo.Context) (service.BudgetInput, error
 		return service.BudgetInput{}, badRequestBody()
 	}
 
-	amount, err := parseAmount(request.Amount, "amount")
+	amount, err := parseAmount(c.Request().Context(), request.Amount, "amount")
 	if err != nil {
 		return service.BudgetInput{}, err
 	}

@@ -18,9 +18,13 @@ func RequestLogger() echo.MiddlewareFunc {
 			if route == "" {
 				route = request.URL.Path
 			}
+			requestID := request.Header.Get(echo.HeaderXRequestID)
+			if requestID == "" {
+				requestID = c.Response().Header().Get(echo.HeaderXRequestID)
+			}
 
 			requestLogger := logging.FromContext(request.Context()).With().
-				Str("request_id", c.Response().Header().Get(echo.HeaderXRequestID)).
+				Str("request_id", requestID).
 				Str("method", request.Method).
 				Str("route", route).
 				Str("uri", request.RequestURI).

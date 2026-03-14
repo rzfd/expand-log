@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/rzfd/expand/internal/model"
-	"github.com/rzfd/expand/internal/pkg/logging"
 	"github.com/rzfd/expand/internal/pkg/money"
 )
 
@@ -99,7 +98,6 @@ type recurringTransactionResponse struct {
 }
 
 func newUserResponse(user model.User) userResponse {
-	logging.FromContext(nil).Info().Int64("user_id", user.ID).Msg("mapper new user response")
 	return userResponse{
 		ID:        user.ID,
 		Email:     user.Email,
@@ -109,7 +107,6 @@ func newUserResponse(user model.User) userResponse {
 }
 
 func newAuthResponse(result userAuthResult) authResponse {
-	logging.FromContext(nil).Info().Int64("user_id", result.User.ID).Msg("mapper new auth response")
 	return authResponse{
 		User:        newUserResponse(result.User),
 		AccessToken: result.Token,
@@ -124,7 +121,6 @@ type userAuthResult struct {
 }
 
 func newCategoryResponse(item model.Category) categoryResponse {
-	logging.FromContext(nil).Info().Int64("category_id", item.ID).Msg("mapper new category response")
 	return categoryResponse{
 		ID:        item.ID,
 		Name:      item.Name,
@@ -135,7 +131,6 @@ func newCategoryResponse(item model.Category) categoryResponse {
 }
 
 func newCategoryResponses(items []model.Category) []categoryResponse {
-	logging.FromContext(nil).Info().Int("count", len(items)).Msg("mapper new category responses")
 	responses := make([]categoryResponse, 0, len(items))
 	for _, item := range items {
 		responses = append(responses, newCategoryResponse(item))
@@ -144,7 +139,6 @@ func newCategoryResponses(items []model.Category) []categoryResponse {
 }
 
 func newTransactionResponse(item model.Transaction) transactionResponse {
-	logging.FromContext(nil).Info().Int64("transaction_id", item.ID).Msg("mapper new transaction response")
 	return transactionResponse{
 		ID:                     item.ID,
 		CategoryID:             item.CategoryID,
@@ -161,7 +155,6 @@ func newTransactionResponse(item model.Transaction) transactionResponse {
 }
 
 func newTransactionResponses(items []model.Transaction) []transactionResponse {
-	logging.FromContext(nil).Info().Int("count", len(items)).Msg("mapper new transaction responses")
 	responses := make([]transactionResponse, 0, len(items))
 	for _, item := range items {
 		responses = append(responses, newTransactionResponse(item))
@@ -170,7 +163,6 @@ func newTransactionResponses(items []model.Transaction) []transactionResponse {
 }
 
 func newMonthlySummaryResponse(item model.MonthlySummary) monthlySummaryResponse {
-	logging.FromContext(nil).Info().Int("year", item.Year).Int("month", item.Month).Msg("mapper new monthly summary response")
 	return monthlySummaryResponse{
 		Year:               item.Year,
 		Month:              item.Month,
@@ -182,7 +174,6 @@ func newMonthlySummaryResponse(item model.MonthlySummary) monthlySummaryResponse
 }
 
 func newDashboardSummaryResponse(item model.DashboardSummary) dashboardSummaryResponse {
-	logging.FromContext(nil).Info().Int("year", item.Year).Int("month", item.Month).Msg("mapper new dashboard summary response")
 	return dashboardSummaryResponse{
 		Year:               item.Year,
 		Month:              item.Month,
@@ -195,7 +186,6 @@ func newDashboardSummaryResponse(item model.DashboardSummary) dashboardSummaryRe
 }
 
 func newSpendingResponses(items []model.CategorySpending) []spendingByCategoryResponse {
-	logging.FromContext(nil).Info().Int("count", len(items)).Msg("mapper new spending responses")
 	responses := make([]spendingByCategoryResponse, 0, len(items))
 	for _, item := range items {
 		responses = append(responses, spendingByCategoryResponse{
@@ -208,7 +198,6 @@ func newSpendingResponses(items []model.CategorySpending) []spendingByCategoryRe
 }
 
 func newBudgetResponse(item model.Budget) budgetResponse {
-	logging.FromContext(nil).Info().Int64("budget_id", item.ID).Msg("mapper new budget response")
 	remaining := item.AmountCents - item.SpentCents
 	usage := 0.0
 	if item.AmountCents > 0 {
@@ -231,7 +220,6 @@ func newBudgetResponse(item model.Budget) budgetResponse {
 }
 
 func newBudgetResponses(items []model.Budget) []budgetResponse {
-	logging.FromContext(nil).Info().Int("count", len(items)).Msg("mapper new budget responses")
 	responses := make([]budgetResponse, 0, len(items))
 	for _, item := range items {
 		responses = append(responses, newBudgetResponse(item))
@@ -240,7 +228,6 @@ func newBudgetResponses(items []model.Budget) []budgetResponse {
 }
 
 func newRecurringResponse(item model.RecurringTransaction) recurringTransactionResponse {
-	logging.FromContext(nil).Info().Int64("recurring_id", item.ID).Msg("mapper new recurring response")
 	return recurringTransactionResponse{
 		ID:           item.ID,
 		CategoryID:   item.CategoryID,
@@ -259,7 +246,6 @@ func newRecurringResponse(item model.RecurringTransaction) recurringTransactionR
 }
 
 func newRecurringResponses(items []model.RecurringTransaction) []recurringTransactionResponse {
-	logging.FromContext(nil).Info().Int("count", len(items)).Msg("mapper new recurring responses")
 	responses := make([]recurringTransactionResponse, 0, len(items))
 	for _, item := range items {
 		responses = append(responses, newRecurringResponse(item))
@@ -268,7 +254,6 @@ func newRecurringResponses(items []model.RecurringTransaction) []recurringTransa
 }
 
 func formatDatePointer(value *time.Time) *string {
-	logging.FromContext(nil).Info().Bool("is_nil", value == nil).Msg("mapper format date pointer")
 	if value == nil {
 		return nil
 	}

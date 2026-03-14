@@ -2,8 +2,6 @@ package model
 
 import (
 	"time"
-
-	"github.com/rzfd/expand/internal/pkg/logging"
 )
 
 type TransactionType string
@@ -14,9 +12,7 @@ const (
 )
 
 func (t TransactionType) IsValid() bool {
-	result := t == TransactionTypeIncome || t == TransactionTypeExpense
-	logging.FromContext(nil).Info().Str("transaction_type", string(t)).Bool("valid", result).Msg("model transaction type validate")
-	return result
+	return t == TransactionTypeIncome || t == TransactionTypeExpense
 }
 
 type RecurringFrequency string
@@ -28,9 +24,7 @@ const (
 )
 
 func (f RecurringFrequency) IsValid() bool {
-	result := f == RecurringFrequencyDaily || f == RecurringFrequencyWeekly || f == RecurringFrequencyMonthly
-	logging.FromContext(nil).Info().Str("frequency", string(f)).Bool("valid", result).Msg("model recurring frequency validate")
-	return result
+	return f == RecurringFrequencyDaily || f == RecurringFrequencyWeekly || f == RecurringFrequencyMonthly
 }
 
 type User struct {

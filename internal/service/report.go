@@ -28,7 +28,7 @@ func NewReportService(reports reportRepository) *ReportService {
 func (s *ReportService) MonthlySummary(ctx context.Context, userID int64, year, month int) (*model.MonthlySummary, error) {
 	logger := logging.FromContext(ctx)
 	logger.Info().Int64("user_id", userID).Int("year", year).Int("month", month).Msg("service report monthly summary started")
-	start, end, err := resolveMonth(year, month)
+	start, end, err := resolveMonth(ctx, year, month)
 	if err != nil {
 		logger.Warn().Err(err).Msg("service report monthly summary invalid month")
 		return nil, err
@@ -84,14 +84,14 @@ func (s *ReportService) DashboardSummary(ctx context.Context, userID int64, year
 	}, nil
 }
 
-func resolveMonth(year, month int) (time.Time, time.Time, error) {
-	logging.FromContext(context.TODO()).Info().Int("year", year).Int("month", month).Msg("service report resolve month started")
+func resolveMonth(ctx context.Context, year, month int) (time.Time, time.Time, error) {
+	logging.FromContext(ctx).Info().Int("year", year).Int("month", month).Msg("service report resolve month started")
 	if year != 0 && (year < 2000 || year > 9999) {
-		logging.FromContext(context.TODO()).Warn().Int("year", year).Msg("service report resolve month invalid year")
+		logging.FromContext(ctx).Warn().Int("year", year).Msg("service report resolve month invalid year")
 		return time.Time{}, time.Time{}, apperror.New(http.StatusBadRequest, "validation_error", "year must be between 2000 and 9999")
 	}
 	if month != 0 && (month < 1 || month > 12) {
-		logging.FromContext(context.TODO()).Warn().Int("month", month).Msg("service report resolve month invalid month")
+		logging.FromContext(ctx).Warn().Int("month", month).Msg("service report resolve month invalid month")
 		return time.Time{}, time.Time{}, apperror.New(http.StatusBadRequest, "validation_error", "month must be between 1 and 12")
 	}
 
@@ -105,10 +105,10 @@ func resolveMonth(year, month int) (time.Time, time.Time, error) {
 
 	start, end, err := schedule.MonthBounds(year, month)
 	if err != nil {
-		logging.FromContext(context.TODO()).Warn().Err(err).Int("year", year).Int("month", month).Msg("service report resolve month failed")
+		logging.FromContext(ctx).Warn().Err(err).Int("year", year).Int("month", month).Msg("service report resolve month failed")
 		return time.Time{}, time.Time{}, apperror.New(http.StatusBadRequest, "validation_error", err.Error())
 	}
 
-	logging.FromContext(context.TODO()).Info().Int("year", year).Int("month", month).Msg("service report resolve month completed")
+	logging.FromContext(ctx).Info().Int("year", year).Int("month", month).Msg("service report resolve month completed")
 	return start, end, nil
 }

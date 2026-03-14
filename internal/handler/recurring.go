@@ -140,12 +140,12 @@ func (h *RecurringHandler) parseRequest(c echo.Context) (service.RecurringInput,
 		return service.RecurringInput{}, badRequestBody()
 	}
 
-	amount, err := parseAmount(request.Amount, "amount")
+	amount, err := parseAmount(c.Request().Context(), request.Amount, "amount")
 	if err != nil {
 		logger.Warn().Err(err).Msg("recurring parse request invalid amount")
 		return service.RecurringInput{}, err
 	}
-	startDate, err := parseRequiredDate(request.StartDate, "start_date")
+	startDate, err := parseRequiredDate(c.Request().Context(), request.StartDate, "start_date")
 	if err != nil {
 		logger.Warn().Err(err).Msg("recurring parse request invalid start date")
 		return service.RecurringInput{}, err
@@ -153,7 +153,7 @@ func (h *RecurringHandler) parseRequest(c echo.Context) (service.RecurringInput,
 
 	var endDate *time.Time
 	if request.EndDate != nil {
-		endDate, err = parseOptionalDate(*request.EndDate, "end_date")
+		endDate, err = parseOptionalDate(c.Request().Context(), *request.EndDate, "end_date")
 		if err != nil {
 			logger.Warn().Err(err).Msg("recurring parse request invalid end date")
 			return service.RecurringInput{}, err

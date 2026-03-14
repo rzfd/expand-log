@@ -15,7 +15,6 @@ import (
 const userIDContextKey = "user_id"
 
 func JWT(tokenManager *auth.TokenManager) echo.MiddlewareFunc {
-	logging.FromContext(nil).Info().Msg("jwt middleware initialized")
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			logger := logging.FromContext(c.Request().Context())
@@ -33,16 +32,16 @@ func JWT(tokenManager *auth.TokenManager) echo.MiddlewareFunc {
 				return response.Error(c, apperror.New(http.StatusUnauthorized, "unauthorized", "invalid access token"))
 			}
 
-			c.SetRequest(c.Request().WithContext(logging.WithField(c.Request().Context(), userIDContextKey, claims.UserID)))
+			ctxWithUser := logging.WithField(c.Request().Context(), userIDContextKey, claims.UserID)
+			c.SetRequest(c.Request().WithContext(ctxWithUser))
 			c.Set(userIDContextKey, claims.UserID)
-			logger.Info().Int64("user_id", claims.UserID).Msg("jwt middleware completed")
+			logging.FromContext(ctxWithUser).Info().Int64("user_id", claims.UserID).Msg("jwt middleware completed")
 			return next(c)
 		}
 	}
 }
 
 func UserIDFromContext(c echo.Context) (int64, bool) {
-	logging.FromContext(c.Request().Context()).Info().Msg("jwt user id from context")
 	value := c.Get(userIDContextKey)
 	userID, ok := value.(int64)
 	return userID, ok

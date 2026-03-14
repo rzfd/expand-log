@@ -39,32 +39,32 @@ func (h *TransactionHandler) List(c echo.Context) error {
 	}
 
 	params := parsePagination(c)
-	startDate, err := parseOptionalDate(c.QueryParam("start_date"), "start_date")
+	startDate, err := parseOptionalDate(c.Request().Context(), c.QueryParam("start_date"), "start_date")
 	if err != nil {
 		logger.Warn().Err(err).Int64("user_id", userID).Msg("transaction list invalid start_date")
 		return response.Error(c, err)
 	}
-	endDate, err := parseOptionalDate(c.QueryParam("end_date"), "end_date")
+	endDate, err := parseOptionalDate(c.Request().Context(), c.QueryParam("end_date"), "end_date")
 	if err != nil {
 		logger.Warn().Err(err).Int64("user_id", userID).Msg("transaction list invalid end_date")
 		return response.Error(c, err)
 	}
-	transactionType, err := parseTransactionType(c.QueryParam("type"))
+	transactionType, err := parseTransactionType(c.Request().Context(), c.QueryParam("type"))
 	if err != nil {
 		logger.Warn().Err(err).Int64("user_id", userID).Msg("transaction list invalid type")
 		return response.Error(c, err)
 	}
-	categoryID, err := parseOptionalInt64(c.QueryParam("category_id"), "category_id")
+	categoryID, err := parseOptionalInt64(c.Request().Context(), c.QueryParam("category_id"), "category_id")
 	if err != nil {
 		logger.Warn().Err(err).Int64("user_id", userID).Msg("transaction list invalid category_id")
 		return response.Error(c, err)
 	}
-	minAmount, err := parseOptionalAmount(c.QueryParam("min_amount"), "min_amount")
+	minAmount, err := parseOptionalAmount(c.Request().Context(), c.QueryParam("min_amount"), "min_amount")
 	if err != nil {
 		logger.Warn().Err(err).Int64("user_id", userID).Msg("transaction list invalid min_amount")
 		return response.Error(c, err)
 	}
-	maxAmount, err := parseOptionalAmount(c.QueryParam("max_amount"), "max_amount")
+	maxAmount, err := parseOptionalAmount(c.Request().Context(), c.QueryParam("max_amount"), "max_amount")
 	if err != nil {
 		logger.Warn().Err(err).Int64("user_id", userID).Msg("transaction list invalid max_amount")
 		return response.Error(c, err)
@@ -215,12 +215,12 @@ func (h *TransactionHandler) parseRequest(c echo.Context) (service.TransactionIn
 		return service.TransactionInput{}, badRequestBody()
 	}
 
-	amount, err := parseAmount(request.Amount, "amount")
+	amount, err := parseAmount(c.Request().Context(), request.Amount, "amount")
 	if err != nil {
 		logger.Warn().Err(err).Msg("transaction parse request invalid amount")
 		return service.TransactionInput{}, err
 	}
-	transactionDate, err := parseRequiredDate(request.TransactionDate, "transaction_date")
+	transactionDate, err := parseRequiredDate(c.Request().Context(), request.TransactionDate, "transaction_date")
 	if err != nil {
 		logger.Warn().Err(err).Msg("transaction parse request invalid transaction_date")
 		return service.TransactionInput{}, err

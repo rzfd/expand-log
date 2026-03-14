@@ -32,8 +32,8 @@ func parseIDParam(c echo.Context, name string) (int64, error) {
 	return id, nil
 }
 
-func parseOptionalDate(value, field string) (*time.Time, error) {
-	logger := logging.FromContext(context.TODO())
+func parseOptionalDate(ctx context.Context, value, field string) (*time.Time, error) {
+	logger := logging.FromContext(ctx)
 	value = strings.TrimSpace(value)
 	if value == "" {
 		logger.Info().Str("field", field).Msg("parse optional date empty")
@@ -51,20 +51,20 @@ func parseOptionalDate(value, field string) (*time.Time, error) {
 	return &normalized, nil
 }
 
-func parseRequiredDate(value, field string) (time.Time, error) {
-	parsed, err := parseOptionalDate(value, field)
+func parseRequiredDate(ctx context.Context, value, field string) (time.Time, error) {
+	parsed, err := parseOptionalDate(ctx, value, field)
 	if err != nil {
 		return time.Time{}, err
 	}
 	if parsed == nil {
-		logging.FromContext(context.TODO()).Warn().Str("field", field).Msg("parse required date missing")
+		logging.FromContext(ctx).Warn().Str("field", field).Msg("parse required date missing")
 		return time.Time{}, apperror.New(http.StatusBadRequest, "validation_error", fmt.Sprintf("%s is required", field))
 	}
 	return *parsed, nil
 }
 
-func parseAmount(value, field string) (int64, error) {
-	logger := logging.FromContext(context.TODO())
+func parseAmount(ctx context.Context, value, field string) (int64, error) {
+	logger := logging.FromContext(ctx)
 	parsed, err := money.ParseDecimal(value)
 	if err != nil {
 		logger.Warn().Err(err).Str("field", field).Str("value", value).Msg("parse amount failed")
@@ -74,20 +74,20 @@ func parseAmount(value, field string) (int64, error) {
 	return parsed, nil
 }
 
-func parseOptionalAmount(value, field string) (*int64, error) {
+func parseOptionalAmount(ctx context.Context, value, field string) (*int64, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return nil, nil
 	}
-	parsed, err := parseAmount(value, field)
+	parsed, err := parseAmount(ctx, value, field)
 	if err != nil {
 		return nil, err
 	}
 	return &parsed, nil
 }
 
-func parseTransactionType(value string) (*model.TransactionType, error) {
-	logger := logging.FromContext(context.TODO())
+func parseTransactionType(ctx context.Context, value string) (*model.TransactionType, error) {
+	logger := logging.FromContext(ctx)
 	value = strings.TrimSpace(value)
 	if value == "" {
 		logger.Info().Msg("parse transaction type empty")
@@ -106,12 +106,12 @@ func parseYearMonth(c echo.Context) (int, int, error) {
 	logger := logging.FromContext(c.Request().Context())
 	yearRaw := strings.TrimSpace(c.QueryParam("year"))
 	monthRaw := strings.TrimSpace(c.QueryParam("month"))
-	year, err := parseOptionalInt(yearRaw)
+	year, err := parseOptionalInt(c.Request().Context(), yearRaw)
 	if err != nil {
 		logger.Warn().Err(err).Str("year", yearRaw).Msg("parse year failed")
 		return 0, 0, apperror.New(http.StatusBadRequest, "validation_error", "year must be a valid integer")
 	}
-	month, err := parseOptionalInt(monthRaw)
+	month, err := parseOptionalInt(c.Request().Context(), monthRaw)
 	if err != nil {
 		logger.Warn().Err(err).Str("month", monthRaw).Msg("parse month failed")
 		return 0, 0, apperror.New(http.StatusBadRequest, "validation_error", "month must be a valid integer")
@@ -128,8 +128,8 @@ func parseYearMonth(c echo.Context) (int, int, error) {
 	return year, month, nil
 }
 
-func parseOptionalInt64(value string, field string) (*int64, error) {
-	logger := logging.FromContext(context.TODO())
+func parseOptionalInt64(ctx context.Context, value string, field string) (*int64, error) {
+	logger := logging.FromContext(ctx)
 	value = strings.TrimSpace(value)
 	if value == "" {
 		logger.Info().Str("field", field).Msg("parse optional int64 empty")
@@ -144,8 +144,8 @@ func parseOptionalInt64(value string, field string) (*int64, error) {
 	return &parsed, nil
 }
 
-func parseOptionalInt(value string) (int, error) {
-	logger := logging.FromContext(context.TODO())
+func parseOptionalInt(ctx context.Context, value string) (int, error) {
+	logger := logging.FromContext(ctx)
 	value = strings.TrimSpace(value)
 	if value == "" {
 		logger.Info().Msg("parse optional int empty")
