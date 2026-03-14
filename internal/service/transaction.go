@@ -17,6 +17,7 @@ type transactionRepository interface {
 	ListByUser(ctx context.Context, userID int64, filter model.TransactionFilter) ([]model.Transaction, int, error)
 	Update(ctx context.Context, transaction *model.Transaction) error
 	Delete(ctx context.Context, id, userID int64) (bool, error)
+	HasRecentManualTransaction(ctx context.Context, userID int64, since time.Time) (bool, error)
 }
 
 type categoryLookupRepository interface {
@@ -50,6 +51,16 @@ func (s *TransactionService) Create(ctx context.Context, userID int64, input Tra
 	if err != nil {
 		logger.Warn().Err(err).Int64("user_id", userID).Msg("service transaction create validation failed")
 		return nil, err
+	}
+	cutoff := currentUTC().Add(-time.Minute)
+	hasRecent, err := s.transactions.HasRecentManualTransaction(ctx, userID, cutoff)
+	if err != nil {
+		logger.Error().Err(err).Int64("user_id", userID).Msg("service transaction create rate limit check failed")
+		return nil, apperror.Wrap(http.StatusInternalServerError, "internal_error", "failed to validate transaction rate limit", err)
+	}
+	if hasRecent {
+		logger.Warn().Int64("user_id", userID).Msg("service transaction create rate limited")
+		return nil, newRateLimitError("you can only create one manual transaction per minute")
 	}
 
 	transaction := model.Transaction{
@@ -112,6 +123,10 @@ func (s *TransactionService) Update(ctx context.Context, userID, transactionID i
 		logger.Warn().Msg("service transaction update not found")
 		return nil, apperror.New(http.StatusNotFound, "not_found", "transaction not found")
 	}
+	if existing.Source == "recurring" {
+		logger.Warn().Int64("user_id", userID).Int64("transaction_id", transactionID).Msg("service transaction update blocked for recurring source")
+		return nil, newValidationError("recurring-generated transactions cannot be edited manually")
+	}
 
 	category, err := s.validateTransactionInput(ctx, userID, input)
 	if err != nil {
@@ -164,11 +179,28 @@ func (s *TransactionService) validateTransactionInput(ctx context.Context, userI
 	}
 	if input.AmountCents <= 0 {
 		logger.Warn().Int64("amount_cents", input.AmountCents).Msg("service transaction validate input invalid amount")
-		return nil, apperror.New(http.StatusBadRequest, "validation_error", "amount must be greater than zero")
+		return nil, newValidationError("amount must be greater than zero")
+	}
+	if err := validateAmountBounds(input.AmountCents); err != nil {
+		logger.Warn().Err(err).Int64("amount_cents", input.AmountCents).Msg("service transaction validate input amount out of range")
+		return nil, err
 	}
 	if input.TransactionDate.IsZero() {
 		logger.Warn().Msg("service transaction validate input missing transaction date")
-		return nil, apperror.New(http.StatusBadRequest, "validation_error", "transaction_date is required")
+		return nil, newValidationError("transaction_date is required")
+	}
+	if err := validateNoteLength(input.Note, maxTransactionNoteLength, "note"); err != nil {
+		logger.Warn().Err(err).Msg("service transaction validate input note too long")
+		return nil, err
+	}
+	now := currentUTC()
+	if input.TransactionDate.UTC().After(now.AddDate(0, 0, maxTransactionFutureDays)) {
+		logger.Warn().Time("transaction_date", input.TransactionDate).Msg("service transaction validate input future date too far")
+		return nil, newValidationError("transaction_date is too far in the future")
+	}
+	if input.TransactionDate.UTC().Before(now.AddDate(-maxTransactionPastYears, 0, 0)) {
+		logger.Warn().Time("transaction_date", input.TransactionDate).Msg("service transaction validate input past date too far")
+		return nil, newValidationError("transaction_date is too far in the past")
 	}
 
 	category, err := s.categories.GetByIDForUser(ctx, input.CategoryID, userID)

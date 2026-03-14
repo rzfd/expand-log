@@ -136,16 +136,20 @@ func validateEmailForAuth(ctx context.Context, email string) error {
 	logger.Info().Msg("service auth validate email started")
 	if email == "" {
 		logger.Warn().Msg("service auth validate email empty")
-		return apperror.New(http.StatusBadRequest, "validation_error", "email is required")
+		return newValidationError("email is required")
+	}
+	if len(email) > maxEmailLength {
+		logger.Warn().Int("email_length", len(email)).Msg("service auth validate email too long")
+		return newValidationError("email must be at most 254 characters")
 	}
 	if strings.Count(email, "@") != 1 {
 		logger.Warn().Str("email", email).Msg("service auth validate email invalid @ count")
-		return apperror.New(http.StatusBadRequest, "validation_error", "email must be a valid address")
+		return newValidationError("email must be a valid address")
 	}
 	parsed, err := mail.ParseAddress(email)
 	if err != nil || parsed == nil || parsed.Address != email {
 		logger.Warn().Err(err).Str("email", email).Msg("service auth validate email parse failed")
-		return apperror.New(http.StatusBadRequest, "validation_error", "email must be a valid address")
+		return newValidationError("email must be a valid address")
 	}
 	logger.Info().Msg("service auth validate email completed")
 	return nil
@@ -167,11 +171,19 @@ func validatePasswordPolicy(ctx context.Context, password string) error {
 	logger.Info().Msg("service auth validate password policy started")
 	if len(password) < 8 {
 		logger.Warn().Msg("service auth validate password policy too short")
-		return apperror.New(http.StatusBadRequest, "validation_error", "password must be at least 8 characters")
+		return newValidationError("password must be at least 8 characters")
+	}
+	if len(password) > maxPasswordLength {
+		logger.Warn().Int("password_length", len(password)).Msg("service auth validate password policy too long")
+		return newValidationError("password must be at most 72 characters")
 	}
 	if !passwordHasLetter.MatchString(password) || !passwordHasNumber.MatchString(password) {
 		logger.Warn().Msg("service auth validate password policy missing character class")
-		return apperror.New(http.StatusBadRequest, "validation_error", "password must include letters and numbers")
+		return newValidationError("password must include letters and numbers")
+	}
+	if isCommonPassword(password) {
+		logger.Warn().Msg("service auth validate password policy common password")
+		return newValidationError("password is too common")
 	}
 	logger.Info().Msg("service auth validate password policy completed")
 	return nil

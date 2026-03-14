@@ -98,6 +98,19 @@ func TestRecurringServiceCreateValidation(t *testing.T) {
 			},
 			message: "recurring transaction type must match category type",
 		},
+		{
+			name: "note too long",
+			input: RecurringInput{
+				CategoryID:  10,
+				Type:        model.TransactionTypeExpense,
+				AmountCents: 10000,
+				Note:        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				Frequency:   model.RecurringFrequencyMonthly,
+				StartDate:   time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
+				Active:      true,
+			},
+			message: "note must be at most 500 characters",
+		},
 	}
 
 	for _, tt := range tests {

@@ -37,7 +37,7 @@ func TestAuthServiceRegister(t *testing.T) {
 	tokenManager := auth.NewTokenManager("test-secret", time.Hour)
 	service := NewAuthService(repo, tokenManager)
 
-	user, err := service.Register(context.Background(), "test@example.com", "password123")
+	user, err := service.Register(context.Background(), "test@example.com", "SecurePass123")
 	if err != nil {
 		t.Fatalf("Register returned error: %v", err)
 	}
@@ -90,6 +90,12 @@ func TestAuthServiceRegisterValidation(t *testing.T) {
 			message: "email must be a valid address",
 		},
 		{
+			name:    "email too long",
+			email:   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com",
+			pass:    "Password123",
+			message: "email must be at most 254 characters",
+		},
+		{
 			name:    "password missing number",
 			email:   "test@example.com",
 			pass:    "password",
@@ -100,6 +106,18 @@ func TestAuthServiceRegisterValidation(t *testing.T) {
 			email:   "test@example.com",
 			pass:    "abc123",
 			message: "password must be at least 8 characters",
+		},
+		{
+			name:    "password too long",
+			email:   "test@example.com",
+			pass:    "Password123Password123Password123Password123Password123Password123Password123",
+			message: "password must be at most 72 characters",
+		},
+		{
+			name:    "common password blocked",
+			email:   "test@example.com",
+			pass:    "password123",
+			message: "password is too common",
 		},
 	}
 

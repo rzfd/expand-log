@@ -81,7 +81,7 @@ func (s *BudgetService) List(ctx context.Context, userID int64, year, month int)
 		}
 	}
 
-	if year < 2000 || month < 1 || month > 12 {
+	if month < 1 || month > 12 || !isBudgetYearAllowed(year, currentUTC()) {
 		logger.Warn().Int("year", year).Int("month", month).Msg("service budget list invalid year month")
 		return nil, apperror.New(http.StatusBadRequest, "validation_error", "year and month must be valid")
 	}
@@ -156,13 +156,13 @@ func (s *BudgetService) validateBudgetInput(ctx context.Context, userID int64, i
 		logger.Warn().Msg("service budget validate input invalid category id")
 		return nil, apperror.New(http.StatusBadRequest, "validation_error", "category_id must be greater than zero")
 	}
-	if input.Year < 2000 || input.Month < 1 || input.Month > 12 {
+	if input.Month < 1 || input.Month > 12 || !isBudgetYearAllowed(input.Year, currentUTC()) {
 		logger.Warn().Int("year", input.Year).Int("month", input.Month).Msg("service budget validate input invalid year month")
-		return nil, apperror.New(http.StatusBadRequest, "validation_error", "year and month must be valid")
+		return nil, apperror.New(http.StatusBadRequest, "validation_error", "year must be within the allowed budgeting window")
 	}
-	if input.AmountCents <= 0 {
-		logger.Warn().Int64("amount_cents", input.AmountCents).Msg("service budget validate input invalid amount")
-		return nil, apperror.New(http.StatusBadRequest, "validation_error", "amount must be greater than zero")
+	if err := validateAmountBounds(input.AmountCents); err != nil {
+		logger.Warn().Err(err).Int64("amount_cents", input.AmountCents).Msg("service budget validate input invalid amount")
+		return nil, err
 	}
 
 	category, err := s.categories.GetByIDForUser(ctx, input.CategoryID, userID)

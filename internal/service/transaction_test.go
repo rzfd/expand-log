@@ -12,7 +12,8 @@ import (
 )
 
 type fakeTransactionRepo struct {
-	item *model.Transaction
+	item      *model.Transaction
+	hasRecent bool
 }
 
 func (f *fakeTransactionRepo) Create(_ context.Context, transaction *model.Transaction) error {
@@ -42,6 +43,10 @@ func (f *fakeTransactionRepo) Update(_ context.Context, transaction *model.Trans
 
 func (f *fakeTransactionRepo) Delete(_ context.Context, _ int64, _ int64) (bool, error) {
 	return true, nil
+}
+
+func (f *fakeTransactionRepo) HasRecentManualTransaction(_ context.Context, _ int64, _ time.Time) (bool, error) {
+	return f.hasRecent, nil
 }
 
 type fakeCategoryLookupRepo struct {
@@ -116,6 +121,26 @@ func TestTransactionServiceCreateValidation(t *testing.T) {
 			message: "amount must be greater than zero",
 		},
 		{
+			name: "transaction date too far in future",
+			input: TransactionInput{
+				CategoryID:      10,
+				Type:            model.TransactionTypeExpense,
+				AmountCents:     1000,
+				TransactionDate: time.Now().UTC().AddDate(0, 0, 3),
+			},
+			message: "transaction_date is too far in the future",
+		},
+		{
+			name: "transaction date too far in past",
+			input: TransactionInput{
+				CategoryID:      10,
+				Type:            model.TransactionTypeExpense,
+				AmountCents:     1000,
+				TransactionDate: time.Now().UTC().AddDate(-6, 0, 0),
+			},
+			message: "transaction_date is too far in the past",
+		},
+		{
 			name: "missing transaction date",
 			input: TransactionInput{
 				CategoryID:  10,
@@ -157,5 +182,76 @@ func TestTransactionServiceCreateValidation(t *testing.T) {
 				t.Fatalf("expected message %q, got %q", tt.message, appErr.Message)
 			}
 		})
+	}
+}
+
+func TestTransactionServiceCreateRateLimited(t *testing.T) {
+	transactionRepo := &fakeTransactionRepo{hasRecent: true}
+	categoryRepo := &fakeCategoryLookupRepo{
+		category: &model.Category{
+			ID:   10,
+			Name: "Food",
+			Type: model.TransactionTypeExpense,
+		},
+	}
+	service := NewTransactionService(transactionRepo, categoryRepo)
+
+	_, err := service.Create(context.Background(), 1, TransactionInput{
+		CategoryID:      10,
+		Type:            model.TransactionTypeExpense,
+		AmountCents:     1250,
+		Note:            "Lunch",
+		TransactionDate: time.Now().UTC(),
+	})
+	if err == nil {
+		t.Fatalf("expected rate limit error")
+	}
+
+	var appErr *apperror.Error
+	if !errors.As(err, &appErr) {
+		t.Fatalf("expected app error, got %T", err)
+	}
+	if appErr.Status != http.StatusTooManyRequests {
+		t.Fatalf("expected status 429, got %d", appErr.Status)
+	}
+}
+
+func TestTransactionServiceUpdateRecurringSourceBlocked(t *testing.T) {
+	transactionRepo := &fakeTransactionRepo{
+		item: &model.Transaction{
+			ID:              1,
+			UserID:          1,
+			CategoryID:      10,
+			Type:            model.TransactionTypeExpense,
+			AmountCents:     1000,
+			TransactionDate: time.Now().UTC(),
+			Source:          "recurring",
+		},
+	}
+	categoryRepo := &fakeCategoryLookupRepo{
+		category: &model.Category{
+			ID:   10,
+			Name: "Food",
+			Type: model.TransactionTypeExpense,
+		},
+	}
+	service := NewTransactionService(transactionRepo, categoryRepo)
+
+	_, err := service.Update(context.Background(), 1, 1, TransactionInput{
+		CategoryID:      10,
+		Type:            model.TransactionTypeExpense,
+		AmountCents:     1200,
+		TransactionDate: time.Now().UTC(),
+	})
+	if err == nil {
+		t.Fatalf("expected validation error")
+	}
+
+	var appErr *apperror.Error
+	if !errors.As(err, &appErr) {
+		t.Fatalf("expected app error, got %T", err)
+	}
+	if appErr.Status != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", appErr.Status)
 	}
 }

@@ -159,18 +159,35 @@ func (s *RecurringService) validateRecurringInput(ctx context.Context, userID in
 	}
 	if input.AmountCents <= 0 {
 		logger.Warn().Int64("amount_cents", input.AmountCents).Msg("service recurring validate input invalid amount")
-		return nil, nil, false, apperror.New(http.StatusBadRequest, "validation_error", "amount must be greater than zero")
+		return nil, nil, false, newValidationError("amount must be greater than zero")
+	}
+	if err := validateAmountBounds(input.AmountCents); err != nil {
+		logger.Warn().Err(err).Int64("amount_cents", input.AmountCents).Msg("service recurring validate input amount out of range")
+		return nil, nil, false, err
 	}
 	if input.StartDate.IsZero() {
 		logger.Warn().Msg("service recurring validate input missing start date")
-		return nil, nil, false, apperror.New(http.StatusBadRequest, "validation_error", "start_date is required")
+		return nil, nil, false, newValidationError("start_date is required")
+	}
+	if err := validateNoteLength(input.Note, maxRecurringNoteLength, "note"); err != nil {
+		logger.Warn().Err(err).Msg("service recurring validate input note too long")
+		return nil, nil, false, err
 	}
 
 	startDate := schedule.NormalizeDate(input.StartDate)
+	now := schedule.NormalizeDate(currentUTC())
+	if startDate.Before(now.AddDate(-maxRecurringPastYears, 0, 0)) {
+		logger.Warn().Time("start_date", startDate).Msg("service recurring validate input start date too far in past")
+		return nil, nil, false, newValidationError("start_date is too far in the past")
+	}
 	endDate := normalizeOptionalDate(input.EndDate)
 	if endDate != nil && endDate.Before(startDate) {
 		logger.Warn().Msg("service recurring validate input invalid end date")
-		return nil, nil, false, apperror.New(http.StatusBadRequest, "validation_error", "end_date must be on or after start_date")
+		return nil, nil, false, newValidationError("end_date must be on or after start_date")
+	}
+	if endDate != nil && endDate.After(startDate.AddDate(maxRecurringFutureYears, 0, 0)) {
+		logger.Warn().Time("end_date", *endDate).Msg("service recurring validate input end date too far in future")
+		return nil, nil, false, newValidationError("end_date is too far in the future")
 	}
 
 	category, err := s.categories.GetByIDForUser(ctx, input.CategoryID, userID)
@@ -193,6 +210,10 @@ func (s *RecurringService) validateRecurringInput(ctx context.Context, userID in
 	}
 
 	if existing != nil && existing.NextRunDate != nil {
+		if input.Active && startDate.After(schedule.NormalizeDate(*existing.NextRunDate)) {
+			logger.Warn().Time("start_date", startDate).Time("existing_next_run_date", *existing.NextRunDate).Msg("service recurring validate input retroactive change blocked")
+			return nil, nil, false, newValidationError("start_date cannot be after current next_run_date for active recurring transaction")
+		}
 		candidate := schedule.NormalizeDate(*existing.NextRunDate)
 		if candidate.Before(startDate) {
 			candidate = startDate

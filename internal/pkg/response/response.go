@@ -45,6 +45,9 @@ func Created(c echo.Context, data any) error {
 func Error(c echo.Context, err error) error {
 	var appErr *apperror.Error
 	if errors.As(err, &appErr) {
+		if appErr.Code == "validation_error" || appErr.Status == http.StatusTooManyRequests {
+			IncValidationFailure(appErr.Code)
+		}
 		logError(c, appErr.Status, appErr.Code, appErr.Message, appErr.Details, err)
 		return c.JSON(appErr.Status, Envelope{
 			Success: false,

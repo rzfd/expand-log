@@ -38,7 +38,11 @@ func (h *TransactionHandler) List(c echo.Context) error {
 		return unauthorized(c)
 	}
 
-	params := parsePagination(c)
+	params, err := parsePagination(c)
+	if err != nil {
+		logger.Warn().Err(err).Int64("user_id", userID).Msg("transaction list invalid pagination")
+		return response.Error(c, err)
+	}
 	startDate, err := parseOptionalDate(c.Request().Context(), c.QueryParam("start_date"), "start_date")
 	if err != nil {
 		logger.Warn().Err(err).Int64("user_id", userID).Msg("transaction list invalid start_date")
@@ -85,6 +89,13 @@ func (h *TransactionHandler) List(c echo.Context) error {
 	if startDate != nil && endDate != nil && endDate.Before(*startDate) {
 		logger.Warn().Int64("user_id", userID).Msg("transaction list invalid range")
 		return response.Error(c, badValidation("end_date must be on or after start_date"))
+	}
+	if startDate != nil && endDate != nil {
+		maxRange := startDate.AddDate(1, 0, 0)
+		if endDate.After(maxRange) {
+			logger.Warn().Int64("user_id", userID).Msg("transaction list date range too large")
+			return response.Error(c, badValidation("date range cannot exceed 1 year"))
+		}
 	}
 	if minAmount != nil && maxAmount != nil && *maxAmount < *minAmount {
 		logger.Warn().Int64("user_id", userID).Msg("transaction list invalid amount range")

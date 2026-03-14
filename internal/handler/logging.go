@@ -6,6 +6,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/rzfd/expand/internal/pkg/logging"
+	"github.com/rzfd/expand/internal/pkg/response"
 )
 
 func RequestLogger() echo.MiddlewareFunc {
@@ -38,7 +39,7 @@ func RequestLogger() echo.MiddlewareFunc {
 			}
 
 			request = c.Request()
-			response := c.Response()
+			resp := c.Response()
 			route = c.Path()
 			if route == "" {
 				route = request.URL.Path
@@ -47,9 +48,9 @@ func RequestLogger() echo.MiddlewareFunc {
 			logger := logging.FromContext(request.Context())
 			var event = logger.Info()
 			switch {
-			case response.Status >= 500:
+			case resp.Status >= 500:
 				event = logger.Error()
-			case response.Status >= 400:
+			case resp.Status >= 400:
 				event = logger.Warn()
 			}
 
@@ -59,12 +60,13 @@ func RequestLogger() echo.MiddlewareFunc {
 
 			event.
 				Str("route", route).
-				Int("status", response.Status).
+				Int("status", resp.Status).
 				Int64("latency_ms", time.Since(start).Milliseconds()).
 				Int64("bytes_in", request.ContentLength).
-				Int64("bytes_out", response.Size).
+				Int64("bytes_out", resp.Size).
 				Str("user_agent", request.UserAgent()).
 				Msg("http request completed")
+			response.ObserveHTTPRequest(request.Method, route, resp.Status)
 
 			return nil
 		}

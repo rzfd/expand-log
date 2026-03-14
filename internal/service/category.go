@@ -43,6 +43,10 @@ func (s *CategoryService) Create(ctx context.Context, userID int64, name string,
 	}
 
 	if err := s.categories.Create(ctx, &category); err != nil {
+		if repository.IsUniqueViolation(err) {
+			logger.Warn().Err(err).Int64("user_id", userID).Msg("service category create duplicate name")
+			return nil, apperror.New(http.StatusConflict, "category_exists", "category already exists for this type")
+		}
 		logger.Error().Err(err).Int64("user_id", userID).Msg("service category create repository failed")
 		return nil, apperror.Wrap(http.StatusInternalServerError, "internal_error", "failed to create category", err)
 	}
@@ -85,6 +89,10 @@ func (s *CategoryService) Update(ctx context.Context, userID, categoryID int64, 
 	category.Name = name
 	category.Type = transactionType
 	if err := s.categories.Update(ctx, category); err != nil {
+		if repository.IsUniqueViolation(err) {
+			logger.Warn().Err(err).Int64("user_id", userID).Int64("category_id", categoryID).Msg("service category update duplicate name")
+			return nil, apperror.New(http.StatusConflict, "category_exists", "category already exists for this type")
+		}
 		logger.Error().Err(err).Msg("service category update repository failed")
 		return nil, apperror.Wrap(http.StatusInternalServerError, "internal_error", "failed to update category", err)
 	}
@@ -118,15 +126,28 @@ func validateCategoryInput(name string, transactionType model.TransactionType) e
 	logger.Info().Msg("service category validate input started")
 	if name == "" {
 		logger.Warn().Msg("service category validate input empty name")
-		return apperror.New(http.StatusBadRequest, "validation_error", "name is required")
+		return newValidationError("name is required")
 	}
-	if len(name) > 100 {
+	if len(name) < minCategoryNameLength {
+		logger.Warn().Msg("service category validate input name too short")
+		return newValidationError("name must be at least 2 characters")
+	}
+	if len(name) > maxCategoryNameLength {
 		logger.Warn().Msg("service category validate input name too long")
-		return apperror.New(http.StatusBadRequest, "validation_error", "name must be at most 100 characters")
+		return newValidationError("name must be at most 50 characters")
+	}
+	reserved := map[string]struct{}{
+		"all":     {},
+		"default": {},
+		"misc":    {},
+	}
+	if _, blocked := reserved[strings.ToLower(name)]; blocked {
+		logger.Warn().Msg("service category validate input reserved name")
+		return newValidationError("name is reserved")
 	}
 	if !transactionType.IsValid() {
 		logger.Warn().Msg("service category validate input invalid type")
-		return apperror.New(http.StatusBadRequest, "validation_error", "type must be either income or expense")
+		return newValidationError("type must be either income or expense")
 	}
 	logger.Info().Msg("service category validate input completed")
 	return nil

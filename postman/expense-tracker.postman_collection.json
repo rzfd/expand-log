@@ -36,7 +36,15 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.collectionVariables.set('email', 'user+' + Date.now() + '@example.com');"
+                  "const now = new Date();",
+                  "const yyyy = String(now.getUTCFullYear());",
+                  "const mm = String(now.getUTCMonth() + 1);",
+                  "const today = now.toISOString().slice(0, 10);",
+                  "pm.collectionVariables.set('email', 'user+' + Date.now() + '@example.com');",
+                  "pm.collectionVariables.set('year', yyyy);",
+                  "pm.collectionVariables.set('month', mm);",
+                  "pm.collectionVariables.set('transactionDate', today);",
+                  "pm.collectionVariables.set('recurringStartDate', today);"
                 ]
               }
             }
@@ -126,6 +134,17 @@
         {
           "name": "Create Category",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const suffix = Date.now();",
+                  "pm.collectionVariables.set('categoryName', 'Food-' + suffix);",
+                  "pm.collectionVariables.set('updatedCategoryName', 'Food Updated-' + suffix);"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -256,7 +275,7 @@
               }
             },
             "url": "{{baseUrl}}/api/v1/transactions",
-            "description": "Creates a transaction and stores the returned `id` in `transactionId`."
+            "description": "Creates a transaction and stores the returned `id` in `transactionId`. Note: manual transaction creation is rate-limited to 1 request per minute per user."
           }
         },
         {
@@ -498,6 +517,324 @@
           }
         }
       ]
+    },
+    {
+      "name": "Negative Tests",
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{accessToken}}",
+            "type": "string"
+          }
+        ]
+      },
+      "description": "Validation and guardrail regression tests. Run after Register/Login/Create Category.",
+      "item": [
+        {
+          "name": "Auth - Register Common Password (Expect 400)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('email', 'user+' + Date.now() + '@example.com');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', function () { pm.response.to.have.status(400); });",
+                  "const json = pm.response.json();",
+                  "pm.test('error code exists', function () { pm.expect(json).to.have.property('error'); pm.expect(json.error).to.have.property('code'); });",
+                  "pm.test('error code is validation_error', function () { pm.expect(json.error.code).to.eql('validation_error'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\":\"{{email}}\",\"password\":\"password123\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/v1/auth/register"
+          },
+          "auth": {
+            "type": "noauth"
+          }
+        },
+        {
+          "name": "Category - Reserved Name (Expect 400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', function () { pm.response.to.have.status(400); });",
+                  "const json = pm.response.json();",
+                  "pm.test('error code exists', function () { pm.expect(json).to.have.property('error'); pm.expect(json.error).to.have.property('code'); });",
+                  "pm.test('error code is validation_error', function () { pm.expect(json.error.code).to.eql('validation_error'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\":\"default\",\"type\":\"expense\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/v1/categories"
+          }
+        },
+        {
+          "name": "Category - Duplicate Name Case-Insensitive (Expect 409)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const name = 'FoodDup-' + Date.now();",
+                  "pm.collectionVariables.set('dupCategoryName', name);",
+                  "pm.sendRequest({",
+                  "  url: pm.collectionVariables.get('baseUrl') + '/api/v1/categories',",
+                  "  method: 'POST',",
+                  "  header: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + pm.collectionVariables.get('accessToken') },",
+                  "  body: { mode: 'raw', raw: JSON.stringify({ name, type: 'expense' }) }",
+                  "}, function (err, res) {});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 409', function () { pm.response.to.have.status(409); });",
+                  "const json = pm.response.json();",
+                  "pm.test('error code exists', function () { pm.expect(json).to.have.property('error'); pm.expect(json.error).to.have.property('code'); });",
+                  "pm.test('error code is category_exists', function () { pm.expect(json.error.code).to.eql('category_exists'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\":\"{{dupCategoryName}}\",\"type\":\"expense\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/v1/categories"
+          }
+        },
+        {
+          "name": "Transaction - Invalid Pagination (Expect 400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', function () { pm.response.to.have.status(400); });",
+                  "const json = pm.response.json();",
+                  "pm.test('error code exists', function () { pm.expect(json).to.have.property('error'); pm.expect(json.error).to.have.property('code'); });",
+                  "pm.test('error code is validation_error', function () { pm.expect(json.error.code).to.eql('validation_error'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/transactions?page=0&page_size=20"
+          }
+        },
+        {
+          "name": "Transaction - Date Range > 1 Year (Expect 400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', function () { pm.response.to.have.status(400); });",
+                  "const json = pm.response.json();",
+                  "pm.test('error code exists', function () { pm.expect(json).to.have.property('error'); pm.expect(json.error).to.have.property('code'); });",
+                  "pm.test('error code is validation_error', function () { pm.expect(json.error.code).to.eql('validation_error'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/transactions?start_date=2024-01-01&end_date=2026-01-01&page=1&page_size=20"
+          }
+        },
+        {
+          "name": "Transaction - Rate Limited (Expect 429)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const today = new Date().toISOString().slice(0,10);",
+                  "const payload = { category_id: Number(pm.collectionVariables.get('categoryId')), type: 'expense', amount: '1.00', note: 'seed', transaction_date: today };",
+                  "pm.sendRequest({",
+                  "  url: pm.collectionVariables.get('baseUrl') + '/api/v1/transactions',",
+                  "  method: 'POST',",
+                  "  header: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + pm.collectionVariables.get('accessToken') },",
+                  "  body: { mode: 'raw', raw: JSON.stringify(payload) }",
+                  "}, function (err, res) {});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 429', function () { pm.response.to.have.status(429); });",
+                  "const json = pm.response.json();",
+                  "pm.test('error code exists', function () { pm.expect(json).to.have.property('error'); pm.expect(json.error).to.have.property('code'); });",
+                  "pm.test('error code is rate_limited', function () { pm.expect(json.error.code).to.eql('rate_limited'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"category_id\":{{categoryId}},\"type\":\"expense\",\"amount\":\"1.00\",\"note\":\"second\",\"transaction_date\":\"{{transactionDate}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/v1/transactions"
+          }
+        },
+        {
+          "name": "Budget - Invalid Year Window (Expect 400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', function () { pm.response.to.have.status(400); });",
+                  "const json = pm.response.json();",
+                  "pm.test('error code exists', function () { pm.expect(json).to.have.property('error'); pm.expect(json.error).to.have.property('code'); });",
+                  "pm.test('error code is validation_error', function () { pm.expect(json.error.code).to.eql('validation_error'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"category_id\":{{categoryId}},\"year\":1999,\"month\":1,\"amount\":\"100.00\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/v1/budgets"
+          }
+        },
+        {
+          "name": "Recurring - Note Too Long (Expect 400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', function () { pm.response.to.have.status(400); });",
+                  "const json = pm.response.json();",
+                  "pm.test('error code exists', function () { pm.expect(json).to.have.property('error'); pm.expect(json.error).to.have.property('code'); });",
+                  "pm.test('error code is validation_error', function () { pm.expect(json.error.code).to.eql('validation_error'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"category_id\": {{categoryId}}, \"type\": \"expense\", \"amount\": \"10.00\", \"note\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", \"frequency\": \"monthly\", \"start_date\": \"{{recurringStartDate}}\", \"active\": true}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/v1/recurring-transactions"
+          }
+        }
+      ]
     }
   ],
   "variable": [
@@ -511,7 +848,7 @@
     },
     {
       "key": "password",
-      "value": "password123"
+      "value": "SecurePass123"
     },
     {
       "key": "accessToken",
@@ -567,11 +904,11 @@
     },
     {
       "key": "categoryName",
-      "value": "Food"
+      "value": "Food-"
     },
     {
       "key": "updatedCategoryName",
-      "value": "Food & Dining"
+      "value": "Food Updated-"
     },
     {
       "key": "transactionAmount",

@@ -160,12 +160,35 @@ func parseOptionalInt(ctx context.Context, value string) (int, error) {
 	return parsed, nil
 }
 
-func parsePagination(c echo.Context) pagination.Params {
-	params := pagination.Parse(c.QueryParam("page"), c.QueryParam("page_size"))
-	logging.FromContext(c.Request().Context()).
+func parsePagination(c echo.Context) (pagination.Params, error) {
+	logger := logging.FromContext(c.Request().Context())
+	pageRaw := strings.TrimSpace(c.QueryParam("page"))
+	pageSizeRaw := strings.TrimSpace(c.QueryParam("page_size"))
+
+	if pageRaw != "" {
+		page, err := strconv.Atoi(pageRaw)
+		if err != nil || page <= 0 {
+			logger.Warn().Str("page", pageRaw).Err(err).Msg("parse pagination invalid page")
+			return pagination.Params{}, apperror.New(http.StatusBadRequest, "validation_error", "page must be a positive integer")
+		}
+	}
+	if pageSizeRaw != "" {
+		pageSize, err := strconv.Atoi(pageSizeRaw)
+		if err != nil || pageSize <= 0 {
+			logger.Warn().Str("page_size", pageSizeRaw).Err(err).Msg("parse pagination invalid page size")
+			return pagination.Params{}, apperror.New(http.StatusBadRequest, "validation_error", "page_size must be a positive integer")
+		}
+		if pageSize > 100 {
+			logger.Warn().Int("page_size", pageSize).Msg("parse pagination page size too large")
+			return pagination.Params{}, apperror.New(http.StatusBadRequest, "validation_error", "page_size must be less than or equal to 100")
+		}
+	}
+
+	params := pagination.Parse(pageRaw, pageSizeRaw)
+	logger.
 		Info().
 		Int("page", params.Page).
 		Int("page_size", params.PageSize).
 		Msg("parse pagination completed")
-	return params
+	return params, nil
 }

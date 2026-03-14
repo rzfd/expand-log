@@ -2,9 +2,12 @@ package service
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"testing"
 
 	"github.com/rzfd/expand/internal/model"
+	"github.com/rzfd/expand/internal/pkg/apperror"
 )
 
 type fakeCategoryRepo struct {
@@ -63,5 +66,55 @@ func TestCategoryServiceCreate(t *testing.T) {
 
 	if item.ID == 0 {
 		t.Fatalf("expected created category to have ID")
+	}
+}
+
+func TestCategoryServiceCreateValidation(t *testing.T) {
+	repo := &fakeCategoryRepo{}
+	service := NewCategoryService(repo)
+
+	tests := []struct {
+		name    string
+		input   string
+		typ     model.TransactionType
+		message string
+	}{
+		{
+			name:    "name too short",
+			input:   "A",
+			typ:     model.TransactionTypeExpense,
+			message: "name must be at least 2 characters",
+		},
+		{
+			name:    "reserved name",
+			input:   "default",
+			typ:     model.TransactionTypeExpense,
+			message: "name is reserved",
+		},
+		{
+			name:    "invalid type",
+			input:   "Food",
+			typ:     model.TransactionType("other"),
+			message: "type must be either income or expense",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := service.Create(context.Background(), 1, tt.input, tt.typ)
+			if err == nil {
+				t.Fatalf("expected validation error")
+			}
+			var appErr *apperror.Error
+			if !errors.As(err, &appErr) {
+				t.Fatalf("expected app error, got %T", err)
+			}
+			if appErr.Status != http.StatusBadRequest {
+				t.Fatalf("expected status 400, got %d", appErr.Status)
+			}
+			if appErr.Message != tt.message {
+				t.Fatalf("expected message %q, got %q", tt.message, appErr.Message)
+			}
+		})
 	}
 }

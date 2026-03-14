@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -212,6 +213,27 @@ func (r *TransactionRepository) Delete(ctx context.Context, id, userID int64) (b
 	deleted := result.RowsAffected() > 0
 	logger.Info().Int64("user_id", userID).Int64("transaction_id", id).Bool("deleted", deleted).Msg("repository transaction delete completed")
 	return deleted, nil
+}
+
+func (r *TransactionRepository) HasRecentManualTransaction(ctx context.Context, userID int64, since time.Time) (bool, error) {
+	logger := logging.FromContext(ctx)
+	logger.Info().Int64("user_id", userID).Time("since", since).Msg("repository transaction recent manual check started")
+	query := `
+		SELECT EXISTS(
+			SELECT 1
+			FROM transactions
+			WHERE user_id = $1
+				AND source = 'manual'
+				AND created_at >= $2
+		)
+	`
+	var exists bool
+	if err := r.db.QueryRow(ctx, query, userID, since).Scan(&exists); err != nil {
+		logger.Error().Err(err).Int64("user_id", userID).Msg("repository transaction recent manual check failed")
+		return false, err
+	}
+	logger.Info().Int64("user_id", userID).Bool("exists", exists).Msg("repository transaction recent manual check completed")
+	return exists, nil
 }
 
 func buildTransactionFilters(userID int64, filter model.TransactionFilter) (string, []any, int) {

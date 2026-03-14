@@ -78,7 +78,7 @@ func TestBudgetServiceCreateValidation(t *testing.T) {
 				Month:       3,
 				AmountCents: 50000,
 			},
-			message: "year and month must be valid",
+			message: "year must be within the allowed budgeting window",
 		},
 		{
 			name: "invalid amount",
