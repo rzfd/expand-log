@@ -226,52 +226,82 @@ func (s *TransactionService) Delete(ctx context.Context, userID, transactionID i
 }
 
 func (s *TransactionService) validateTransactionInput(ctx context.Context, userID int64, input TransactionInput) (*model.Category, error) {
+	ctx, span := transactionTracer.Start(ctx, "service.transaction.validate_input")
+	defer span.End()
+	span.SetAttributes(
+		attribute.Int64("app.user.id", userID),
+		attribute.Int64("app.category.id", input.CategoryID),
+	)
+
 	logger := logging.FromContext(ctx)
 	logger.Info().Int64("user_id", userID).Int64("category_id", input.CategoryID).Msg("service transaction validate input started")
 	if input.CategoryID <= 0 {
+		span.SetStatus(codes.Error, "invalid category id")
 		logger.Warn().Msg("service transaction validate input invalid category id")
 		return nil, apperror.New(http.StatusBadRequest, "validation_error", "category_id must be greater than zero")
 	}
 	if !input.Type.IsValid() {
+		span.SetStatus(codes.Error, "invalid type")
 		logger.Warn().Str("type", string(input.Type)).Msg("service transaction validate input invalid type")
 		return nil, apperror.New(http.StatusBadRequest, "validation_error", "type must be either income or expense")
 	}
 	if input.AmountCents <= 0 {
+		span.SetStatus(codes.Error, "invalid amount")
 		logger.Warn().Int64("amount_cents", input.AmountCents).Msg("service transaction validate input invalid amount")
 		return nil, newValidationError("amount must be greater than zero")
 	}
 	if err := validateAmountBounds(input.AmountCents); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "amount out of range")
 		logger.Warn().Err(err).Int64("amount_cents", input.AmountCents).Msg("service transaction validate input amount out of range")
 		return nil, err
 	}
 	if input.TransactionDate.IsZero() {
+		span.SetStatus(codes.Error, "missing transaction date")
 		logger.Warn().Msg("service transaction validate input missing transaction date")
 		return nil, newValidationError("transaction_date is required")
 	}
 	if err := validateNoteLength(input.Note, maxTransactionNoteLength, "note"); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "invalid note")
 		logger.Warn().Err(err).Msg("service transaction validate input note too long")
 		return nil, err
 	}
 	now := currentUTC()
 	if input.TransactionDate.UTC().After(now.AddDate(0, 0, maxTransactionFutureDays)) {
+		span.SetStatus(codes.Error, "transaction date too far in future")
 		logger.Warn().Time("transaction_date", input.TransactionDate).Msg("service transaction validate input future date too far")
 		return nil, newValidationError("transaction_date is too far in the future")
 	}
 	if input.TransactionDate.UTC().Before(now.AddDate(-maxTransactionPastYears, 0, 0)) {
+		span.SetStatus(codes.Error, "transaction date too far in past")
 		logger.Warn().Time("transaction_date", input.TransactionDate).Msg("service transaction validate input past date too far")
 		return nil, newValidationError("transaction_date is too far in the past")
 	}
 
+	_, lookupSpan := transactionTracer.Start(ctx, "service.transaction.lookup_category")
 	category, err := s.categories.GetByIDForUser(ctx, input.CategoryID, userID)
 	if err != nil {
+		lookupSpan.RecordError(err)
+		lookupSpan.SetStatus(codes.Error, "category lookup failed")
+	}
+	lookupSpan.End()
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "category lookup failed")
 		logger.Error().Err(err).Msg("service transaction validate input category lookup failed")
 		return nil, apperror.Wrap(http.StatusInternalServerError, "internal_error", "failed to load category", err)
 	}
 	if category == nil {
+		span.AddEvent("category_not_found")
+		span.SetAttributes(attribute.Bool("app.category.found", false))
+		span.SetStatus(codes.Error, "category not found")
 		logger.Warn().Msg("service transaction validate input category not found")
 		return nil, apperror.New(http.StatusBadRequest, "validation_error", "category not found")
 	}
+	span.SetAttributes(attribute.Bool("app.category.found", true))
 	if category.Type != input.Type {
+		span.SetStatus(codes.Error, "category type mismatch")
 		logger.Warn().Str("category_type", string(category.Type)).Str("input_type", string(input.Type)).Msg("service transaction validate input type mismatch")
 		return nil, apperror.New(http.StatusBadRequest, "validation_error", "transaction type must match category type")
 	}

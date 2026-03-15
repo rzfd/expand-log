@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/rzfd/expand/internal/model"
 	"github.com/rzfd/expand/internal/pkg/logging"
@@ -53,6 +54,7 @@ func (p *Processor) ProcessDue(ctx context.Context) (int, error) {
 
 	for i := 0; i < p.batchSize; i++ {
 		logger.Info().Int("iteration", i+1).Str("run_at", runAt).Msg("worker process due iteration")
+		span.AddEvent("tx_begin", trace.WithAttributes(attribute.Int("iteration", i+1)))
 		tx, err := p.repo.BeginTx(ctx)
 		if err != nil {
 			span.RecordError(err)
@@ -74,6 +76,7 @@ func (p *Processor) ProcessDue(ctx context.Context) (int, error) {
 			logger.Error().Err(err).Int("iteration", i+1).Msg("worker process due load next failed")
 			return created, fmt.Errorf("get next due recurring transaction: %w", err)
 		}
+		span.AddEvent("next_due_loaded", trace.WithAttributes(attribute.Int64("app.recurring.id", item.ID)))
 
 		if item.NextRunDate == nil {
 			_ = tx.Rollback(ctx)
@@ -91,6 +94,7 @@ func (p *Processor) ProcessDue(ctx context.Context) (int, error) {
 			logger.Error().Err(err).Int64("recurring_id", item.ID).Msg("worker process due insert generated failed")
 			return created, fmt.Errorf("insert generated transaction: %w", err)
 		}
+		span.AddEvent("generated_transaction_processed", trace.WithAttributes(attribute.Bool("inserted", inserted)))
 
 		nextRunDate, active, err := nextSchedule(ctx, item.Frequency, runDate, item.EndDate)
 		if err != nil {
@@ -114,6 +118,7 @@ func (p *Processor) ProcessDue(ctx context.Context) (int, error) {
 			logger.Error().Err(err).Int64("recurring_id", item.ID).Msg("worker process due advance schedule failed")
 			return created, fmt.Errorf("advance recurring schedule: %w", err)
 		}
+		span.AddEvent("schedule_advanced", trace.WithAttributes(attribute.Bool("active", active)))
 
 		if err := tx.Commit(ctx); err != nil {
 			_ = tx.Rollback(ctx)
@@ -122,6 +127,7 @@ func (p *Processor) ProcessDue(ctx context.Context) (int, error) {
 			logger.Error().Err(err).Int64("recurring_id", item.ID).Msg("worker process due commit failed")
 			return created, fmt.Errorf("commit tx: %w", err)
 		}
+		span.AddEvent("tx_committed", trace.WithAttributes(attribute.Int64("app.recurring.id", item.ID)))
 
 		if inserted {
 			created++

@@ -102,7 +102,6 @@ func (s *AuthService) Register(ctx context.Context, email, password string) (*mo
 	}
 
 	span.SetAttributes(
-		attribute.String("app.user.email", user.Email),
 		attribute.Int64("app.user.id", user.ID),
 	)
 	logger.Info().Int64("user_id", user.ID).Msg("service auth register completed")

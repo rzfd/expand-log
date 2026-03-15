@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/rzfd/expand/internal/model"
 	"github.com/rzfd/expand/internal/pkg/logging"
@@ -24,6 +25,11 @@ func NewTransactionRepository(db *pgxpool.Pool) *TransactionRepository {
 }
 
 func (r *TransactionRepository) Create(ctx context.Context, transaction *model.Transaction) error {
+	ctx, span := startRepositorySpan(ctx, "repository.transaction.create",
+		attribute.Int64("app.user.id", transaction.UserID),
+	)
+	defer span.End()
+
 	logger := logging.FromContext(ctx)
 	logger.Info().Int64("user_id", transaction.UserID).Msg("repository transaction create started")
 	query := `
@@ -34,8 +40,10 @@ func (r *TransactionRepository) Create(ctx context.Context, transaction *model.T
 		RETURNING id, created_at, updated_at
 	`
 
+	dbCtx, dbSpan := startDBSpan(ctx, "insert", attribute.String("db.table", "transactions"))
+	setDBStatement(dbSpan, query)
 	err := r.db.QueryRow(
-		ctx,
+		dbCtx,
 		query,
 		transaction.UserID,
 		transaction.CategoryID,
@@ -47,6 +55,13 @@ func (r *TransactionRepository) Create(ctx context.Context, transaction *model.T
 		transaction.Source,
 	).Scan(&transaction.ID, &transaction.CreatedAt, &transaction.UpdatedAt)
 	if err != nil {
+		markSpanError(dbSpan, err, "insert transaction failed")
+	} else {
+		dbSpan.SetAttributes(attribute.Int64("app.transaction.id", transaction.ID))
+	}
+	dbSpan.End()
+	if err != nil {
+		markSpanError(span, err, "create transaction failed")
 		logger.Error().Err(err).Int64("user_id", transaction.UserID).Msg("repository transaction create failed")
 		return err
 	}
@@ -55,6 +70,12 @@ func (r *TransactionRepository) Create(ctx context.Context, transaction *model.T
 }
 
 func (r *TransactionRepository) GetByIDForUser(ctx context.Context, id, userID int64) (*model.Transaction, error) {
+	ctx, span := startRepositorySpan(ctx, "repository.transaction.get_by_id_for_user",
+		attribute.Int64("app.user.id", userID),
+		attribute.Int64("app.transaction.id", id),
+	)
+	defer span.End()
+
 	logger := logging.FromContext(ctx)
 	logger.Info().Int64("user_id", userID).Int64("transaction_id", id).Msg("repository transaction get by id started")
 	query := `
@@ -78,7 +99,9 @@ func (r *TransactionRepository) GetByIDForUser(ctx context.Context, id, userID i
 
 	var transaction model.Transaction
 	var recurringID sql.NullInt64
-	err := r.db.QueryRow(ctx, query, id, userID).Scan(
+	dbCtx, dbSpan := startDBSpan(ctx, "select", attribute.String("db.table", "transactions"))
+	setDBStatement(dbSpan, query)
+	err := r.db.QueryRow(dbCtx, query, id, userID).Scan(
 		&transaction.ID,
 		&transaction.UserID,
 		&transaction.CategoryID,
@@ -92,11 +115,15 @@ func (r *TransactionRepository) GetByIDForUser(ctx context.Context, id, userID i
 		&transaction.CreatedAt,
 		&transaction.UpdatedAt,
 	)
+	defer dbSpan.End()
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
+			span.AddEvent("transaction_not_found")
 			logger.Info().Int64("user_id", userID).Int64("transaction_id", id).Msg("repository transaction get by id not found")
 			return nil, nil
 		}
+		markSpanError(dbSpan, err, "select transaction failed")
+		markSpanError(span, err, "get transaction failed")
 		logger.Error().Err(err).Int64("user_id", userID).Int64("transaction_id", id).Msg("repository transaction get by id failed")
 		return nil, err
 	}
@@ -110,16 +137,28 @@ func (r *TransactionRepository) GetByIDForUser(ctx context.Context, id, userID i
 }
 
 func (r *TransactionRepository) ListByUser(ctx context.Context, userID int64, filter model.TransactionFilter) ([]model.Transaction, int, error) {
+	ctx, span := startRepositorySpan(ctx, "repository.transaction.list_by_user",
+		attribute.Int64("app.user.id", userID),
+	)
+	defer span.End()
+
 	logger := logging.FromContext(ctx)
 	logger.Info().Int64("user_id", userID).Msg("repository transaction list by user started")
 	whereClause, args, nextIndex := buildTransactionFilters(userID, filter)
 
 	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM transactions t WHERE %s`, whereClause)
 	var total int
-	if err := r.db.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
+	countCtx, countSpan := startDBSpan(ctx, "select", attribute.String("db.table", "transactions"))
+	setDBStatement(countSpan, countQuery)
+	if err := r.db.QueryRow(countCtx, countQuery, args...).Scan(&total); err != nil {
+		markSpanError(countSpan, err, "count transactions failed")
+		countSpan.End()
+		markSpanError(span, err, "list count failed")
 		logger.Error().Err(err).Int64("user_id", userID).Msg("repository transaction list count failed")
 		return nil, 0, err
 	}
+	countSpan.SetAttributes(attribute.Int("app.transaction.total", total))
+	countSpan.End()
 
 	args = append(args, filter.PageSize, filter.Offset)
 	listQuery := fmt.Sprintf(`
@@ -143,17 +182,25 @@ func (r *TransactionRepository) ListByUser(ctx context.Context, userID int64, fi
 		LIMIT $%d OFFSET $%d
 	`, whereClause, nextIndex, nextIndex+1)
 
-	rows, err := r.db.Query(ctx, listQuery, args...)
+	listCtx, listSpan := startDBSpan(ctx, "select", attribute.String("db.table", "transactions"))
+	setDBStatement(listSpan, listQuery)
+	rows, err := r.db.Query(listCtx, listQuery, args...)
 	if err != nil {
+		markSpanError(listSpan, err, "query transactions failed")
+		listSpan.End()
+		markSpanError(span, err, "list query failed")
 		logger.Error().Err(err).Int64("user_id", userID).Msg("repository transaction list query failed")
 		return nil, 0, err
 	}
 	defer rows.Close()
+	defer listSpan.End()
 
 	transactions := make([]model.Transaction, 0)
 	for rows.Next() {
 		transaction, err := scanTransaction(rows)
 		if err != nil {
+			markSpanError(listSpan, err, "scan transactions failed")
+			markSpanError(span, err, "list scan failed")
 			logger.Error().Err(err).Int64("user_id", userID).Msg("repository transaction list scan failed")
 			return nil, 0, err
 		}
@@ -161,14 +208,23 @@ func (r *TransactionRepository) ListByUser(ctx context.Context, userID int64, fi
 	}
 
 	if err := rows.Err(); err != nil {
+		markSpanError(listSpan, err, "rows transactions failed")
+		markSpanError(span, err, "list rows failed")
 		logger.Error().Err(err).Int64("user_id", userID).Msg("repository transaction list rows failed")
 		return nil, 0, err
 	}
+	listSpan.SetAttributes(attribute.Int("app.transaction.count", len(transactions)))
 	logger.Info().Int64("user_id", userID).Int("count", len(transactions)).Int("total", total).Msg("repository transaction list by user completed")
 	return transactions, total, nil
 }
 
 func (r *TransactionRepository) Update(ctx context.Context, transaction *model.Transaction) error {
+	ctx, span := startRepositorySpan(ctx, "repository.transaction.update",
+		attribute.Int64("app.user.id", transaction.UserID),
+		attribute.Int64("app.transaction.id", transaction.ID),
+	)
+	defer span.End()
+
 	logger := logging.FromContext(ctx)
 	logger.Info().Int64("user_id", transaction.UserID).Int64("transaction_id", transaction.ID).Msg("repository transaction update started")
 	query := `
@@ -183,8 +239,10 @@ func (r *TransactionRepository) Update(ctx context.Context, transaction *model.T
 		RETURNING updated_at
 	`
 
+	dbCtx, dbSpan := startDBSpan(ctx, "update", attribute.String("db.table", "transactions"))
+	setDBStatement(dbSpan, query)
 	err := r.db.QueryRow(
-		ctx,
+		dbCtx,
 		query,
 		transaction.CategoryID,
 		transaction.Type,
@@ -195,6 +253,11 @@ func (r *TransactionRepository) Update(ctx context.Context, transaction *model.T
 		transaction.UserID,
 	).Scan(&transaction.UpdatedAt)
 	if err != nil {
+		markSpanError(dbSpan, err, "update transaction failed")
+	}
+	dbSpan.End()
+	if err != nil {
+		markSpanError(span, err, "update transaction failed")
 		logger.Error().Err(err).Int64("user_id", transaction.UserID).Int64("transaction_id", transaction.ID).Msg("repository transaction update failed")
 		return err
 	}
@@ -203,19 +266,38 @@ func (r *TransactionRepository) Update(ctx context.Context, transaction *model.T
 }
 
 func (r *TransactionRepository) Delete(ctx context.Context, id, userID int64) (bool, error) {
+	ctx, span := startRepositorySpan(ctx, "repository.transaction.delete",
+		attribute.Int64("app.user.id", userID),
+		attribute.Int64("app.transaction.id", id),
+	)
+	defer span.End()
+
 	logger := logging.FromContext(ctx)
 	logger.Info().Int64("user_id", userID).Int64("transaction_id", id).Msg("repository transaction delete started")
-	result, err := r.db.Exec(ctx, `DELETE FROM transactions WHERE id = $1 AND user_id = $2`, id, userID)
+	dbCtx, dbSpan := startDBSpan(ctx, "delete", attribute.String("db.table", "transactions"))
+	statement := `DELETE FROM transactions WHERE id = $1 AND user_id = $2`
+	setDBStatement(dbSpan, statement)
+	result, err := r.db.Exec(dbCtx, statement, id, userID)
 	if err != nil {
+		markSpanError(dbSpan, err, "delete transaction failed")
+		dbSpan.End()
+		markSpanError(span, err, "delete transaction failed")
 		logger.Error().Err(err).Int64("user_id", userID).Int64("transaction_id", id).Msg("repository transaction delete failed")
 		return false, err
 	}
+	dbSpan.SetAttributes(attribute.Int64("db.rows_affected", result.RowsAffected()))
+	dbSpan.End()
 	deleted := result.RowsAffected() > 0
 	logger.Info().Int64("user_id", userID).Int64("transaction_id", id).Bool("deleted", deleted).Msg("repository transaction delete completed")
 	return deleted, nil
 }
 
 func (r *TransactionRepository) HasRecentManualTransaction(ctx context.Context, userID int64, since time.Time) (bool, error) {
+	ctx, span := startRepositorySpan(ctx, "repository.transaction.has_recent_manual",
+		attribute.Int64("app.user.id", userID),
+	)
+	defer span.End()
+
 	logger := logging.FromContext(ctx)
 	logger.Info().Int64("user_id", userID).Time("since", since).Msg("repository transaction recent manual check started")
 	query := `
@@ -228,10 +310,17 @@ func (r *TransactionRepository) HasRecentManualTransaction(ctx context.Context, 
 		)
 	`
 	var exists bool
-	if err := r.db.QueryRow(ctx, query, userID, since).Scan(&exists); err != nil {
+	dbCtx, dbSpan := startDBSpan(ctx, "select", attribute.String("db.table", "transactions"))
+	setDBStatement(dbSpan, query)
+	if err := r.db.QueryRow(dbCtx, query, userID, since).Scan(&exists); err != nil {
+		markSpanError(dbSpan, err, "check recent manual failed")
+		dbSpan.End()
+		markSpanError(span, err, "check recent manual failed")
 		logger.Error().Err(err).Int64("user_id", userID).Msg("repository transaction recent manual check failed")
 		return false, err
 	}
+	dbSpan.SetAttributes(attribute.Bool("app.transaction.exists", exists))
+	dbSpan.End()
 	logger.Info().Int64("user_id", userID).Bool("exists", exists).Msg("repository transaction recent manual check completed")
 	return exists, nil
 }

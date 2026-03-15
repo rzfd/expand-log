@@ -32,6 +32,7 @@ func NewEcho(serviceName string) *echo.Echo {
 	e.HTTPErrorHandler = HTTPErrorHandler
 	e.Use(echomiddleware.RequestID())
 	e.Use(otelecho.Middleware(serviceName, otelecho.WithSkipper(shouldSkipObservabilityForContext)))
+	e.Use(HandlerTracing())
 	e.Use(RequestLogger())
 	e.Use(echomiddleware.RecoverWithConfig(echomiddleware.RecoverConfig{
 		DisablePrintStack: true,

@@ -5,6 +5,8 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v4"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/rzfd/expand/internal/pkg/apperror"
 	"github.com/rzfd/expand/internal/pkg/logging"
@@ -24,6 +26,9 @@ type ErrorBody struct {
 }
 
 func JSON(c echo.Context, status int, data any, meta any) error {
+	span := trace.SpanFromContext(c.Request().Context())
+	span.SetAttributes(attribute.Int("app.response.status", status))
+	span.AddEvent("response_sent")
 	logging.FromContext(c.Request().Context()).Info().Int("status", status).Msg("response json")
 	return c.JSON(status, Envelope{
 		Success: true,
@@ -43,12 +48,19 @@ func Created(c echo.Context, data any) error {
 }
 
 func Error(c echo.Context, err error) error {
+	span := trace.SpanFromContext(c.Request().Context())
 	var appErr *apperror.Error
 	if errors.As(err, &appErr) {
 		if appErr.Code == "validation_error" || appErr.Status == http.StatusTooManyRequests {
 			IncValidationFailure(appErr.Code)
 		}
 		logError(c, appErr.Status, appErr.Code, appErr.Message, appErr.Details, err)
+		span.SetAttributes(
+			attribute.Int("app.response.status", appErr.Status),
+			attribute.String("app.error.code", appErr.Code),
+			attribute.String("app.error.message", appErr.Message),
+		)
+		span.AddEvent("response_error")
 		return c.JSON(appErr.Status, Envelope{
 			Success: false,
 			Error: &ErrorBody{
@@ -60,6 +72,12 @@ func Error(c echo.Context, err error) error {
 	}
 
 	logError(c, http.StatusInternalServerError, "internal_error", "internal server error", nil, err)
+	span.SetAttributes(
+		attribute.Int("app.response.status", http.StatusInternalServerError),
+		attribute.String("app.error.code", "internal_error"),
+		attribute.String("app.error.message", "internal server error"),
+	)
+	span.AddEvent("response_error")
 	return c.JSON(http.StatusInternalServerError, Envelope{
 		Success: false,
 		Error: &ErrorBody{
