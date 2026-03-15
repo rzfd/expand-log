@@ -13,6 +13,7 @@ import (
 type Config struct {
 	App      AppConfig
 	Logging  LoggingConfig
+	Tracing  TracingConfig
 	Database DatabaseConfig
 	Auth     AuthConfig
 	Worker   WorkerConfig
@@ -26,6 +27,15 @@ type AppConfig struct {
 type LoggingConfig struct {
 	Level  string
 	Format string
+}
+
+type TracingConfig struct {
+	Enabled        bool
+	Endpoint       string
+	Insecure       bool
+	SampleRatio    float64
+	ServiceVersion string
+	Environment    string
 }
 
 type DatabaseConfig struct {
@@ -61,6 +71,14 @@ func Load() (Config, error) {
 		Logging: LoggingConfig{
 			Level:  getEnv("LOG_LEVEL", "info"),
 			Format: getEnv("LOG_FORMAT", "text"),
+		},
+		Tracing: TracingConfig{
+			Enabled:        getEnvBool("OTEL_ENABLED", false),
+			Endpoint:       getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+			Insecure:       getEnvBool("OTEL_EXPORTER_OTLP_INSECURE", true),
+			SampleRatio:    getEnvFloat("OTEL_TRACES_SAMPLER_ARG", 1.0),
+			ServiceVersion: getEnv("OTEL_SERVICE_VERSION", "dev"),
+			Environment:    getEnv("APP_ENV", "dev"),
 		},
 		Database: DatabaseConfig{
 			Host:              getEnv("DB_HOST", "postgres"),
@@ -151,5 +169,39 @@ func getEnvDuration(key string, fallback time.Duration) time.Duration {
 	}
 
 	logging.FromContext(nil).Info().Str("key", key).Str("duration", parsed.String()).Msg("config env duration loaded")
+	return parsed
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	value, ok := os.LookupEnv(key)
+	if !ok {
+		logging.FromContext(nil).Info().Str("key", key).Msg("config env bool fallback used")
+		return fallback
+	}
+
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		logging.FromContext(nil).Warn().Err(err).Str("key", key).Str("value", value).Msg("config env bool parse failed")
+		return fallback
+	}
+
+	logging.FromContext(nil).Info().Str("key", key).Bool("value", parsed).Msg("config env bool loaded")
+	return parsed
+}
+
+func getEnvFloat(key string, fallback float64) float64 {
+	value, ok := os.LookupEnv(key)
+	if !ok {
+		logging.FromContext(nil).Info().Str("key", key).Msg("config env float fallback used")
+		return fallback
+	}
+
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		logging.FromContext(nil).Warn().Err(err).Str("key", key).Str("value", value).Msg("config env float parse failed")
+		return fallback
+	}
+
+	logging.FromContext(nil).Info().Str("key", key).Float64("value", parsed).Msg("config env float loaded")
 	return parsed
 }

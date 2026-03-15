@@ -12,6 +12,7 @@ import (
 	"github.com/rzfd/expand/internal/handler"
 	"github.com/rzfd/expand/internal/pkg/auth"
 	"github.com/rzfd/expand/internal/pkg/logging"
+	"github.com/rzfd/expand/internal/pkg/tracing"
 	"github.com/rzfd/expand/internal/platform/postgres"
 	"github.com/rzfd/expand/internal/repository"
 	"github.com/rzfd/expand/internal/service"
@@ -39,6 +40,30 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(logging.WithContext(context.Background(), logger), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	traceShutdown, err := tracing.Setup(ctx, tracing.Config{
+		Enabled:        cfg.Tracing.Enabled,
+		Endpoint:       cfg.Tracing.Endpoint,
+		Insecure:       cfg.Tracing.Insecure,
+		SampleRatio:    cfg.Tracing.SampleRatio,
+		ServiceName:    cfg.App.Name,
+		ServiceVersion: cfg.Tracing.ServiceVersion,
+		Environment:    cfg.Tracing.Environment,
+	})
+	if err != nil {
+		logger.Error().Err(err).Msg("setup tracing")
+		os.Exit(1)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := traceShutdown(shutdownCtx); err != nil {
+			logger.Warn().Err(err).Msg("shutdown tracing")
+		}
+	}()
+	if !cfg.Tracing.Enabled {
+		logger.Info().Msg("tracing disabled")
+	}
 
 	db, err := postgres.OpenWithRetry(ctx, cfg.Database)
 	if err != nil {
@@ -69,7 +94,7 @@ func main() {
 	budgetService := service.NewBudgetService(budgetRepo, categoryRepo)
 	recurringService := service.NewRecurringService(recurringRepo, categoryRepo)
 
-	echo := handler.NewEcho()
+	echo := handler.NewEcho(cfg.App.Name)
 	handler.RegisterRoutes(echo, handler.RouterDependencies{
 		TokenManager: tokenManager,
 		Auth:         handler.NewAuthHandler(authService),

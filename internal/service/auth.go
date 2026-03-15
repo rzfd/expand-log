@@ -13,7 +13,12 @@ import (
 	"github.com/rzfd/expand/internal/pkg/auth"
 	"github.com/rzfd/expand/internal/pkg/logging"
 	"github.com/rzfd/expand/internal/repository"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
+
+var authTracer = otel.Tracer("service.auth")
 
 type authUserRepository interface {
 	Create(ctx context.Context, user *model.User) error
@@ -39,30 +44,42 @@ func NewAuthService(users authUserRepository, tokenManager *auth.TokenManager) *
 }
 
 func (s *AuthService) Register(ctx context.Context, email, password string) (*model.User, error) {
+	ctx, span := authTracer.Start(ctx, "service.auth.register")
+	defer span.End()
+
 	logger := logging.FromContext(ctx)
 	logger.Info().Msg("service auth register started")
 	email = normalizeEmail(ctx, email)
 	if err := validateEmailForAuth(ctx, email); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "email validation failed")
 		logger.Warn().Err(err).Msg("service auth register email validation failed")
 		return nil, err
 	}
 	if err := validatePasswordPolicy(ctx, password); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "password validation failed")
 		logger.Warn().Err(err).Msg("service auth register validation failed")
 		return nil, err
 	}
 
 	existing, err := s.users.GetByEmail(ctx, email)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "lookup existing user failed")
 		logger.Error().Err(err).Msg("service auth register user lookup failed")
 		return nil, apperror.Wrap(http.StatusInternalServerError, "internal_error", "failed to check existing user", err)
 	}
 	if existing != nil {
+		span.SetStatus(codes.Error, "email already exists")
 		logger.Warn().Msg("service auth register email already exists")
 		return nil, apperror.New(http.StatusConflict, "email_exists", "email is already registered")
 	}
 
 	passwordHash, err := auth.HashPassword(password)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "hash password failed")
 		logger.Error().Err(err).Msg("service auth register password hash failed")
 		return nil, apperror.Wrap(http.StatusInternalServerError, "internal_error", "failed to hash password", err)
 	}
@@ -73,56 +90,79 @@ func (s *AuthService) Register(ctx context.Context, email, password string) (*mo
 	}
 	if err := s.users.Create(ctx, &user); err != nil {
 		if repository.IsUniqueViolation(err) {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "email already exists")
 			logger.Warn().Err(err).Msg("service auth register unique violation")
 			return nil, apperror.New(http.StatusConflict, "email_exists", "email is already registered")
 		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "create user failed")
 		logger.Error().Err(err).Msg("service auth register user create failed")
 		return nil, apperror.Wrap(http.StatusInternalServerError, "internal_error", "failed to create user", err)
 	}
 
+	span.SetAttributes(
+		attribute.String("app.user.email", user.Email),
+		attribute.Int64("app.user.id", user.ID),
+	)
 	logger.Info().Int64("user_id", user.ID).Msg("service auth register completed")
 	return &user, nil
 }
 
 func (s *AuthService) Login(ctx context.Context, email, password string) (*AuthResult, error) {
+	ctx, span := authTracer.Start(ctx, "service.auth.login")
+	defer span.End()
+
 	logger := logging.FromContext(ctx)
 	logger.Info().Msg("service auth login started")
 	email = normalizeEmail(ctx, email)
 	if err := validateEmailForAuth(ctx, email); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "email validation failed")
 		logger.Warn().Err(err).Msg("service auth login email validation failed")
 		return nil, err
 	}
 	if strings.TrimSpace(password) == "" {
+		span.SetStatus(codes.Error, "empty password")
 		logger.Warn().Msg("service auth login empty password")
 		return nil, apperror.New(http.StatusBadRequest, "validation_error", "password is required")
 	}
 
 	if len(password) < 8 {
+		span.SetStatus(codes.Error, "short password")
 		logger.Warn().Msg("service auth login short password")
 		return nil, apperror.New(http.StatusBadRequest, "validation_error", "password must be at least 8 characters")
 	}
 
 	user, err := s.users.GetByEmail(ctx, email)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "load user failed")
 		logger.Error().Err(err).Msg("service auth login user lookup failed")
 		return nil, apperror.Wrap(http.StatusInternalServerError, "internal_error", "failed to load user", err)
 	}
 	if user == nil {
+		span.SetStatus(codes.Error, "invalid credentials")
 		logger.Warn().Msg("service auth login user not found")
 		return nil, apperror.New(http.StatusUnauthorized, "invalid_credentials", "invalid email or password")
 	}
 
 	if err := auth.ComparePassword(user.PasswordHash, password); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "invalid credentials")
 		logger.Warn().Err(err).Int64("user_id", user.ID).Msg("service auth login password mismatch")
 		return nil, apperror.New(http.StatusUnauthorized, "invalid_credentials", "invalid email or password")
 	}
 
 	token, expiresAt, err := s.tokenManager.Generate(user.ID)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "token generation failed")
 		logger.Error().Err(err).Int64("user_id", user.ID).Msg("service auth login token generation failed")
 		return nil, apperror.Wrap(http.StatusInternalServerError, "internal_error", "failed to generate token", err)
 	}
 
+	span.SetAttributes(attribute.Int64("app.user.id", user.ID))
 	logger.Info().Int64("user_id", user.ID).Msg("service auth login completed")
 	return &AuthResult{
 		User:      *user,

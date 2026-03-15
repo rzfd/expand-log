@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/rzfd/expand/internal/pkg/logging"
 	"github.com/rzfd/expand/internal/pkg/response"
@@ -31,6 +32,13 @@ func RequestLogger() echo.MiddlewareFunc {
 				Str("uri", request.RequestURI).
 				Str("remote_ip", c.RealIP()).
 				Logger()
+			spanCtx := trace.SpanContextFromContext(request.Context())
+			if spanCtx.IsValid() {
+				requestLogger = requestLogger.With().
+					Str("trace_id", spanCtx.TraceID().String()).
+					Str("span_id", spanCtx.SpanID().String()).
+					Logger()
+			}
 			c.SetRequest(request.WithContext(logging.WithContext(request.Context(), requestLogger)))
 
 			err := next(c)
@@ -43,6 +51,9 @@ func RequestLogger() echo.MiddlewareFunc {
 			route = c.Path()
 			if route == "" {
 				route = request.URL.Path
+			}
+			if shouldSkipObservability(route) {
+				return nil
 			}
 
 			logger := logging.FromContext(request.Context())

@@ -9,7 +9,12 @@ import (
 	"github.com/rzfd/expand/internal/model"
 	"github.com/rzfd/expand/internal/pkg/apperror"
 	"github.com/rzfd/expand/internal/pkg/logging"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
+
+var transactionTracer = otel.Tracer("service.transaction")
 
 type transactionRepository interface {
 	Create(ctx context.Context, transaction *model.Transaction) error
@@ -45,20 +50,29 @@ func NewTransactionService(transactions transactionRepository, categories catego
 }
 
 func (s *TransactionService) Create(ctx context.Context, userID int64, input TransactionInput) (*model.Transaction, error) {
+	ctx, span := transactionTracer.Start(ctx, "service.transaction.create")
+	defer span.End()
+	span.SetAttributes(attribute.Int64("app.user.id", userID))
+
 	logger := logging.FromContext(ctx)
 	logger.Info().Int64("user_id", userID).Msg("service transaction create started")
 	category, err := s.validateTransactionInput(ctx, userID, input)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "validation failed")
 		logger.Warn().Err(err).Int64("user_id", userID).Msg("service transaction create validation failed")
 		return nil, err
 	}
 	cutoff := currentUTC().Add(-time.Minute)
 	hasRecent, err := s.transactions.HasRecentManualTransaction(ctx, userID, cutoff)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "rate limit check failed")
 		logger.Error().Err(err).Int64("user_id", userID).Msg("service transaction create rate limit check failed")
 		return nil, apperror.Wrap(http.StatusInternalServerError, "internal_error", "failed to validate transaction rate limit", err)
 	}
 	if hasRecent {
+		span.SetStatus(codes.Error, "rate limited")
 		logger.Warn().Int64("user_id", userID).Msg("service transaction create rate limited")
 		return nil, newRateLimitError("you can only create one manual transaction per minute")
 	}
@@ -75,23 +89,36 @@ func (s *TransactionService) Create(ctx context.Context, userID int64, input Tra
 	}
 
 	if err := s.transactions.Create(ctx, &transaction); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "repository create failed")
 		logger.Error().Err(err).Int64("user_id", userID).Msg("service transaction create repository failed")
 		return nil, apperror.Wrap(http.StatusInternalServerError, "internal_error", "failed to create transaction", err)
 	}
 
+	span.SetAttributes(attribute.Int64("app.transaction.id", transaction.ID))
 	logger.Info().Int64("user_id", userID).Int64("transaction_id", transaction.ID).Msg("service transaction create completed")
 	return s.transactions.GetByIDForUser(ctx, transaction.ID, userID)
 }
 
 func (s *TransactionService) GetByID(ctx context.Context, userID, transactionID int64) (*model.Transaction, error) {
+	ctx, span := transactionTracer.Start(ctx, "service.transaction.get_by_id")
+	defer span.End()
+	span.SetAttributes(
+		attribute.Int64("app.user.id", userID),
+		attribute.Int64("app.transaction.id", transactionID),
+	)
+
 	logger := logging.FromContext(ctx)
 	logger.Info().Int64("user_id", userID).Int64("transaction_id", transactionID).Msg("service transaction get by id started")
 	transaction, err := s.transactions.GetByIDForUser(ctx, transactionID, userID)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "repository get failed")
 		logger.Error().Err(err).Msg("service transaction get by id repository failed")
 		return nil, apperror.Wrap(http.StatusInternalServerError, "internal_error", "failed to load transaction", err)
 	}
 	if transaction == nil {
+		span.SetStatus(codes.Error, "not found")
 		logger.Warn().Msg("service transaction get by id not found")
 		return nil, apperror.New(http.StatusNotFound, "not_found", "transaction not found")
 	}
@@ -100,36 +127,56 @@ func (s *TransactionService) GetByID(ctx context.Context, userID, transactionID 
 }
 
 func (s *TransactionService) List(ctx context.Context, userID int64, filter model.TransactionFilter) ([]model.Transaction, int, error) {
+	ctx, span := transactionTracer.Start(ctx, "service.transaction.list")
+	defer span.End()
+	span.SetAttributes(attribute.Int64("app.user.id", userID))
+
 	logger := logging.FromContext(ctx)
 	logger.Info().Int64("user_id", userID).Msg("service transaction list started")
 	items, total, err := s.transactions.ListByUser(ctx, userID, filter)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "repository list failed")
 		logger.Error().Err(err).Msg("service transaction list repository failed")
 		return nil, 0, apperror.Wrap(http.StatusInternalServerError, "internal_error", "failed to list transactions", err)
 	}
+	span.SetAttributes(attribute.Int("app.transaction.count", len(items)))
 	logger.Info().Int64("user_id", userID).Int("count", len(items)).Int("total", total).Msg("service transaction list completed")
 	return items, total, nil
 }
 
 func (s *TransactionService) Update(ctx context.Context, userID, transactionID int64, input TransactionInput) (*model.Transaction, error) {
+	ctx, span := transactionTracer.Start(ctx, "service.transaction.update")
+	defer span.End()
+	span.SetAttributes(
+		attribute.Int64("app.user.id", userID),
+		attribute.Int64("app.transaction.id", transactionID),
+	)
+
 	logger := logging.FromContext(ctx)
 	logger.Info().Int64("user_id", userID).Int64("transaction_id", transactionID).Msg("service transaction update started")
 	existing, err := s.transactions.GetByIDForUser(ctx, transactionID, userID)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "load existing failed")
 		logger.Error().Err(err).Msg("service transaction update load failed")
 		return nil, apperror.Wrap(http.StatusInternalServerError, "internal_error", "failed to load transaction", err)
 	}
 	if existing == nil {
+		span.SetStatus(codes.Error, "not found")
 		logger.Warn().Msg("service transaction update not found")
 		return nil, apperror.New(http.StatusNotFound, "not_found", "transaction not found")
 	}
 	if existing.Source == "recurring" {
+		span.SetStatus(codes.Error, "recurring source cannot be updated")
 		logger.Warn().Int64("user_id", userID).Int64("transaction_id", transactionID).Msg("service transaction update blocked for recurring source")
 		return nil, newValidationError("recurring-generated transactions cannot be edited manually")
 	}
 
 	category, err := s.validateTransactionInput(ctx, userID, input)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "validation failed")
 		logger.Warn().Err(err).Msg("service transaction update validation failed")
 		return nil, err
 	}
@@ -142,6 +189,8 @@ func (s *TransactionService) Update(ctx context.Context, userID, transactionID i
 	existing.TransactionDate = input.TransactionDate.UTC()
 
 	if err := s.transactions.Update(ctx, existing); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "repository update failed")
 		logger.Error().Err(err).Msg("service transaction update repository failed")
 		return nil, apperror.Wrap(http.StatusInternalServerError, "internal_error", "failed to update transaction", err)
 	}
@@ -151,14 +200,24 @@ func (s *TransactionService) Update(ctx context.Context, userID, transactionID i
 }
 
 func (s *TransactionService) Delete(ctx context.Context, userID, transactionID int64) error {
+	ctx, span := transactionTracer.Start(ctx, "service.transaction.delete")
+	defer span.End()
+	span.SetAttributes(
+		attribute.Int64("app.user.id", userID),
+		attribute.Int64("app.transaction.id", transactionID),
+	)
+
 	logger := logging.FromContext(ctx)
 	logger.Info().Int64("user_id", userID).Int64("transaction_id", transactionID).Msg("service transaction delete started")
 	deleted, err := s.transactions.Delete(ctx, transactionID, userID)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "repository delete failed")
 		logger.Error().Err(err).Msg("service transaction delete repository failed")
 		return apperror.Wrap(http.StatusInternalServerError, "internal_error", "failed to delete transaction", err)
 	}
 	if !deleted {
+		span.SetStatus(codes.Error, "not found")
 		logger.Warn().Msg("service transaction delete not found")
 		return apperror.New(http.StatusNotFound, "not_found", "transaction not found")
 	}

@@ -9,7 +9,12 @@ import (
 	"github.com/rzfd/expand/internal/pkg/apperror"
 	"github.com/rzfd/expand/internal/pkg/logging"
 	"github.com/rzfd/expand/internal/pkg/schedule"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
+
+var reportTracer = otel.Tracer("service.report")
 
 type reportRepository interface {
 	GetMonthlyTotals(ctx context.Context, userID int64, start, end string) (int64, int64, error)
@@ -26,25 +31,44 @@ func NewReportService(reports reportRepository) *ReportService {
 }
 
 func (s *ReportService) MonthlySummary(ctx context.Context, userID int64, year, month int) (*model.MonthlySummary, error) {
+	ctx, span := reportTracer.Start(ctx, "service.report.monthly_summary")
+	defer span.End()
+	span.SetAttributes(
+		attribute.Int64("app.user.id", userID),
+		attribute.Int("app.report.year", year),
+		attribute.Int("app.report.month", month),
+	)
+
 	logger := logging.FromContext(ctx)
 	logger.Info().Int64("user_id", userID).Int("year", year).Int("month", month).Msg("service report monthly summary started")
 	start, end, err := resolveMonth(ctx, year, month)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "resolve month failed")
 		logger.Warn().Err(err).Msg("service report monthly summary invalid month")
 		return nil, err
 	}
 
 	income, expense, err := s.reports.GetMonthlyTotals(ctx, userID, start.Format("2006-01-02"), end.Format("2006-01-02"))
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "get monthly totals failed")
 		logger.Error().Err(err).Msg("service report monthly summary totals failed")
 		return nil, apperror.Wrap(http.StatusInternalServerError, "internal_error", "failed to build monthly summary", err)
 	}
 
 	spending, err := s.reports.GetMonthlySpendingByCategory(ctx, userID, start.Format("2006-01-02"), end.Format("2006-01-02"))
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "get monthly spending failed")
 		logger.Error().Err(err).Msg("service report monthly summary category spending failed")
 		return nil, apperror.Wrap(http.StatusInternalServerError, "internal_error", "failed to build monthly summary", err)
 	}
+	span.SetAttributes(
+		attribute.Int64("app.report.income_cents", income),
+		attribute.Int64("app.report.expense_cents", expense),
+		attribute.Int("app.report.category_count", len(spending)),
+	)
 
 	logger.Info().Int64("user_id", userID).Int64("income_cents", income).Int64("expense_cents", expense).Msg("service report monthly summary completed")
 	return &model.MonthlySummary{
@@ -58,19 +82,32 @@ func (s *ReportService) MonthlySummary(ctx context.Context, userID int64, year, 
 }
 
 func (s *ReportService) DashboardSummary(ctx context.Context, userID int64, year, month int) (*model.DashboardSummary, error) {
+	ctx, span := reportTracer.Start(ctx, "service.report.dashboard_summary")
+	defer span.End()
+	span.SetAttributes(
+		attribute.Int64("app.user.id", userID),
+		attribute.Int("app.report.year", year),
+		attribute.Int("app.report.month", month),
+	)
+
 	logger := logging.FromContext(ctx)
 	logger.Info().Int64("user_id", userID).Int("year", year).Int("month", month).Msg("service report dashboard summary started")
 	monthly, err := s.MonthlySummary(ctx, userID, year, month)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "monthly summary failed")
 		logger.Warn().Err(err).Msg("service report dashboard summary monthly failed")
 		return nil, err
 	}
 
 	recent, err := s.reports.GetRecentTransactions(ctx, userID, 5)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "load recent transactions failed")
 		logger.Error().Err(err).Msg("service report dashboard summary recent transactions failed")
 		return nil, apperror.Wrap(http.StatusInternalServerError, "internal_error", "failed to load recent transactions", err)
 	}
+	span.SetAttributes(attribute.Int("app.report.recent_count", len(recent)))
 
 	logger.Info().Int64("user_id", userID).Int("recent_count", len(recent)).Msg("service report dashboard summary completed")
 	return &model.DashboardSummary{

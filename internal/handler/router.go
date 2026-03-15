@@ -6,6 +6,7 @@ import (
 	"github.com/labstack/echo/v4"
 	echomiddleware "github.com/labstack/echo/v4/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho"
 
 	authmiddleware "github.com/rzfd/expand/internal/middleware"
 	"github.com/rzfd/expand/internal/pkg/apperror"
@@ -24,12 +25,13 @@ type RouterDependencies struct {
 	Recurring    *RecurringHandler
 }
 
-func NewEcho() *echo.Echo {
+func NewEcho(serviceName string) *echo.Echo {
 	e := echo.New()
 	e.HideBanner = true
 	e.HidePort = true
 	e.HTTPErrorHandler = HTTPErrorHandler
 	e.Use(echomiddleware.RequestID())
+	e.Use(otelecho.Middleware(serviceName, otelecho.WithSkipper(shouldSkipObservabilityForContext)))
 	e.Use(RequestLogger())
 	e.Use(echomiddleware.RecoverWithConfig(echomiddleware.RecoverConfig{
 		DisablePrintStack: true,
